@@ -210,7 +210,11 @@ export function CascadeFilter({
                 </label>
                 {hasSelection && (
                   <button
-                    onClick={() => handleClearLevel(level + 1)}
+                    onClick={(e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      handleClearLevel(level)
+                    }}
                     className="text-xs text-red-600 hover:text-red-800 flex items-center gap-1"
                     title="Clear this and below"
                   >

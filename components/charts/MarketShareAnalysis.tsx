@@ -5,14 +5,14 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recha
 import { generateMarketShareData, MarketShareData, loadCompetitiveIntelligenceData } from '@/lib/competitive-intelligence-data'
 import { useDashboardStore } from '@/lib/store'
 import { GeographyMultiSelect } from '@/components/filters/GeographyMultiSelect'
-import { Filter } from 'lucide-react'
+import { Filter, X } from 'lucide-react'
 
 interface MarketShareAnalysisProps {
   year?: number
 }
 
 export function MarketShareAnalysis({ year: propYear = 2024 }: MarketShareAnalysisProps) {
-  const { data, filters } = useDashboardStore()
+  const { data, filters, updateFilters } = useDashboardStore()
   const [marketShareData, setMarketShareData] = useState<MarketShareData[]>([])
   const [allCompaniesData, setAllCompaniesData] = useState<MarketShareData[]>([])
   const [activeTab, setActiveTab] = useState<'chart' | 'table'>('chart')
@@ -158,20 +158,33 @@ export function MarketShareAnalysis({ year: propYear = 2024 }: MarketShareAnalys
             {/* Active Filters Summary */}
             {(filters.geographies.length > 0 || selectedYear !== propYear) && (
               <div className="md:col-span-2 pt-2 border-t border-gray-200">
-                <div className="text-xs text-black">
-                  <span className="font-medium">Active Filters:</span>
-                  <span className="ml-2">
-                    {filters.geographies.length > 0 && (
-                      <span className="inline-block mr-2">
-                        Geography: {filters.geographies.length} selected
-                      </span>
-                    )}
-                    {selectedYear !== propYear && (
-                      <span className="inline-block">
-                        Year: {selectedYear}
-                      </span>
-                    )}
-                  </span>
+                <div className="flex items-center justify-between">
+                  <div className="text-xs text-black">
+                    <span className="font-medium">Active Filters:</span>
+                    <span className="ml-2">
+                      {filters.geographies.length > 0 && (
+                        <span className="inline-block mr-2">
+                          Geography: {filters.geographies.length} selected
+                        </span>
+                      )}
+                      {selectedYear !== propYear && (
+                        <span className="inline-block">
+                          Year: {selectedYear}
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => {
+                      updateFilters({ geographies: [] })
+                      setSelectedYear(propYear)
+                    }}
+                    className="flex items-center gap-1 px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+                    title="Clear all filters"
+                  >
+                    <X className="h-3 w-3" />
+                    Clear
+                  </button>
                 </div>
               </div>
             )}
