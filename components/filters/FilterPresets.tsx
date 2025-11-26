@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo } from 'react'
 import { Zap, TrendingUp, Globe, Target, BarChart3, Save, Trash2, ChevronDown, ChevronUp } from 'lucide-react'
 import { useDashboardStore } from '@/lib/store'
 import { FilterState } from '@/lib/types'
@@ -31,44 +31,19 @@ export function FilterPresets() {
 
   // Dynamically compute default presets based on actual data
   const defaultPresets = useMemo<FilterPreset[]>(() => {
-    if (!data) {
-      console.warn('⚠️ FilterPresets: No data available, returning empty presets')
-      return []
-    }
-
-    // Validate data structure
-    if (!data.data || !data.data.value || !data.data.value.geography_segment_matrix) {
-      console.error('❌ FilterPresets: Invalid data structure', {
-        hasData: !!data,
-        hasDataData: !!data?.data,
-        hasValue: !!data?.data?.value,
-        hasMatrix: !!data?.data?.value?.geography_segment_matrix,
-        dataKeys: data ? Object.keys(data) : [],
-        dataDataKeys: data?.data ? Object.keys(data.data) : []
-      })
-      return []
-    }
-
     // Create dynamic filters based on data
     const topMarketFilters = createTopMarketFilters(data)
     const growthLeadersFilters = createGrowthLeadersFilters(data)
     const emergingMarketsFilters = createEmergingMarketsFilters(data)
 
-    console.log('📊 FilterPresets: Generated presets', {
-      topMarketFilters,
-      growthLeadersFilters,
-      emergingMarketsFilters,
-      dataRecordCount: data.data.value.geography_segment_matrix.length
-    })
-
     return [
-      {
-        id: 'top-markets',
-        name: 'Top Markets',
+  {
+    id: 'top-markets',
+    name: 'Top Markets',
         description: 'Top 3 regions by 2024 market size',
-        icon: <Globe className="h-4 w-4" />,
+    icon: <Globe className="h-4 w-4" />,
         filters: topMarketFilters
-      },
+  },
       {
         id: 'growth-leaders',
         name: 'Growth Leaders',
@@ -83,18 +58,18 @@ export function FilterPresets() {
         icon: <Target className="h-4 w-4" />,
         filters: emergingMarketsFilters
       },
-      {
-        id: 'full-comparison',
-        name: 'Full Comparison',
-        description: 'All regions and segments matrix view',
-        icon: <BarChart3 className="h-4 w-4" />,
-        filters: {
-          viewMode: 'matrix',
-          yearRange: [2024, 2028],
-          dataType: 'value',
-        }
-      },
-    ]
+  {
+    id: 'full-comparison',
+    name: 'Full Comparison',
+    description: 'All regions and segments matrix view',
+    icon: <BarChart3 className="h-4 w-4" />,
+    filters: {
+      viewMode: 'matrix',
+      yearRange: [2024, 2028],
+      dataType: 'value',
+    }
+  },
+]
   }, [data])
 
   const applyPreset = (preset: FilterPreset) => {
@@ -150,7 +125,7 @@ export function FilterPresets() {
   }
 
   // Load custom presets from localStorage on mount
-  useEffect(() => {
+  useState(() => {
     const saved = localStorage.getItem('marketAnalysisPresets')
     if (saved) {
       try {
@@ -159,7 +134,7 @@ export function FilterPresets() {
         console.error('Error loading custom presets:', e)
       }
     }
-  }, [])
+  })
 
   if (!data) return null
 
