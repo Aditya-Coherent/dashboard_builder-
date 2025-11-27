@@ -53,7 +53,6 @@ export async function GET(request: NextRequest) {
       const csvSheet = csvWorkbook.Sheets[csvWorkbook.SheetNames[0]]
       const csvJson = XLSX.utils.sheet_to_json(csvSheet, { 
         header: 1, 
-        defval: '',
         raw: false
       }) as any[][]
       
@@ -150,7 +149,6 @@ export async function GET(request: NextRequest) {
         // Convert to JSON array
         const jsonData = XLSX.utils.sheet_to_json(worksheet, { 
           header: 1, 
-          defval: '',
           raw: false,
           blankrows: false
         }) as any[][]

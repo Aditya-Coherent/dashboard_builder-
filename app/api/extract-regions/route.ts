@@ -58,7 +58,6 @@ export async function POST(request: NextRequest) {
     // Convert to JSON array
     const jsonData = XLSX.utils.sheet_to_json(worksheet, { 
       header: 1, 
-      defval: '',
       raw: false,
       blankrows: false
     }) as any[][]
