@@ -43,7 +43,6 @@ export async function POST(request: NextRequest) {
       workbook = XLSX.read(csvString, { 
         type: 'string',
         raw: true, // Preserve raw values
-        defval: '',
         blankrows: false
       })
     } else {
