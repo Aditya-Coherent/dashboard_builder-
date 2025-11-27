@@ -426,13 +426,13 @@ export function DistributorsIntelligence({ title, height = 600 }: DistributorsIn
 
   // Get visible columns for the table
   const visibleColumns = useMemo(() => {
-    return getTableColumnsForModule(selectedModule).map(col => col.key)
-  }, [selectedModule])
+    return getTableColumnsForModule(distributorsData, selectedModule).map(col => col.key)
+  }, [distributorsData, selectedModule])
   
   // Get table columns with labels
   const tableColumns = useMemo(() => {
-    return getTableColumnsForModule(selectedModule)
-  }, [selectedModule])
+    return getTableColumnsForModule(distributorsData, selectedModule)
+  }, [distributorsData, selectedModule])
   
   // Helper to get column label
   const getColumnLabel = (columnKey: string): string => {

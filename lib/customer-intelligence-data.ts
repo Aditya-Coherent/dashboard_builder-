@@ -549,7 +549,7 @@ export async function loadCustomerIntelligenceData(filePath?: string): Promise<C
       // Transform the API response to match CustomerIntelligenceData structure
       if (data.data && Array.isArray(data.data) && data.data.length > 0) {
         console.log(`Successfully loaded ${data.data.length} customer intelligence cells`)
-        cachedData = data.data
+        cachedData = data.data as CustomerIntelligenceData[]
         return cachedData
       }
       

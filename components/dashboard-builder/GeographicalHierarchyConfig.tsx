@@ -32,8 +32,10 @@ export function GeographicalHierarchyConfig({
       // Level 1: All regions that haven't been assigned as children
       const assignedAsChildren = new Set<string>()
       Object.values(hierarchy).forEach(levelConfig => {
-        Object.values(levelConfig).forEach(children => {
-          children.forEach(child => assignedAsChildren.add(child))
+        Object.values(levelConfig).forEach((children: unknown) => {
+          if (Array.isArray(children)) {
+            children.forEach((child: string) => assignedAsChildren.add(child))
+          }
         })
       })
       return regions.filter(region => !assignedAsChildren.has(region))
@@ -53,8 +55,10 @@ export function GeographicalHierarchyConfig({
       // For level 1, children are unassigned regions
       const assignedAsChildren = new Set<string>()
       Object.values(hierarchy).forEach(levelConfig => {
-        Object.values(levelConfig).forEach(children => {
-          children.forEach(child => assignedAsChildren.add(child))
+        Object.values(levelConfig).forEach((children: unknown) => {
+          if (Array.isArray(children)) {
+            children.forEach((child: string) => assignedAsChildren.add(child))
+          }
         })
       })
       const currentChildren = hierarchy[level]?.[parentName] || []
@@ -234,8 +238,10 @@ export function GeographicalHierarchyConfig({
     // Find all regions that are assigned as children
     const allChildren = new Set<string>()
     Object.values(hierarchy).forEach(levelConfig => {
-      Object.values(levelConfig).forEach(children => {
-        children.forEach(child => allChildren.add(child))
+      Object.values(levelConfig).forEach((children: unknown) => {
+        if (Array.isArray(children)) {
+          children.forEach((child: string) => allChildren.add(child))
+        }
       })
     })
 
@@ -266,8 +272,8 @@ export function GeographicalHierarchyConfig({
 
       // Find children in hierarchy at this level
       if (hierarchy[level]) {
-        const children = hierarchy[level][name] || []
-        children.forEach(child => {
+        const children = (hierarchy[level][name] || []) as string[]
+        children.forEach((child: string) => {
           // Find which level the child is a parent at
           let childLevel = level + 1
           for (let l = level + 1; l <= maxLevel; l++) {
@@ -296,7 +302,7 @@ export function GeographicalHierarchyConfig({
     return roots
   }
 
-  const renderHierarchyTree = (nodes: HierarchyNode[], depth: number = 0): JSX.Element[] => {
+  const renderHierarchyTree = (nodes: HierarchyNode[], depth: number = 0): React.ReactElement[] => {
     return nodes.map((node, index) => (
       <div key={`${node.name}-${index}`} className="ml-4">
         <div className="flex items-center gap-2 py-1">

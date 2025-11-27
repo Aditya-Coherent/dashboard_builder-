@@ -4,6 +4,8 @@
  * Last updated: 2024
  */
 
+import { CHART_COLORS } from '@/lib/chart-theme'
+
 export interface Proposition {
   title: string
   description: string
@@ -136,10 +138,10 @@ export async function loadCompetitiveIntelligenceData(): Promise<CompetitiveInte
         const companies = parseCompetitiveIntelligenceFromData(store.competitiveIntelligenceData.rows)
         
         // Calculate market share data
-        const marketShareData = companies.map(company => ({
+        const marketShareData = companies.map((company, index) => ({
           company: company.name,
           marketShare: company.marketShare,
-          color: company.color || '#94a3b8'
+          color: CHART_COLORS.primary[index % CHART_COLORS.primary.length]
         }))
         
         const data: CompetitiveIntelligenceData = {

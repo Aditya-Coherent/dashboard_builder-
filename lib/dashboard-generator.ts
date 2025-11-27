@@ -132,16 +132,20 @@ function extractValueData(data: ComparisonData): any {
         console.warn(`Maximum segment depth (${MAX_SEGMENT_DEPTH}) reached for record:`, record.segment)
         break
       }
-      if (!current[segment]) {
-        current[segment] = {}
+      if (segment && typeof segment === 'string') {
+        if (!current[segment]) {
+          current[segment] = {}
+        }
+        current = current[segment]
+        depth++
       }
-      current = current[segment]
-      depth++
     }
     
     // Add year data
     for (const [year, value] of Object.entries(record.time_series)) {
-      current[year] = value
+      if (year && typeof year === 'string') {
+        current[year] = value
+      }
     }
     
     if (record.cagr) {
@@ -198,15 +202,19 @@ function extractVolumeData(data: ComparisonData): any {
         console.warn(`Maximum segment depth (${MAX_SEGMENT_DEPTH}) reached for record:`, record.segment)
         break
       }
-      if (!current[segment]) {
-        current[segment] = {}
+      if (segment && typeof segment === 'string') {
+        if (!current[segment]) {
+          current[segment] = {}
+        }
+        current = current[segment]
+        depth++
       }
-      current = current[segment]
-      depth++
     }
     
     for (const [year, value] of Object.entries(record.time_series)) {
-      current[year] = value
+      if (year && typeof year === 'string') {
+        current[year] = value
+      }
     }
     
     if (record.cagr) {

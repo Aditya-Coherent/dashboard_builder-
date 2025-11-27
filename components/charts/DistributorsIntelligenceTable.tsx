@@ -459,8 +459,8 @@ export function DistributorsIntelligence({ title, height = 600 }: DistributorsIn
 
   // Get table columns for the selected module
   const tableColumns = useMemo(() => {
-    return getTableColumnsForModule(selectedModule)
-  }, [selectedModule])
+    return getTableColumnsForModule(distributorsData, selectedModule)
+  }, [distributorsData, selectedModule])
 
   // Get unique sections from columns
   const tableSections = useMemo(() => {

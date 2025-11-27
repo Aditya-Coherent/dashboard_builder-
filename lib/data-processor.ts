@@ -35,12 +35,13 @@ export function determineAggregationLevel(
     const mostCommonLevel = aggregatedLevels.reduce((a, b, _, arr) =>
       arr.filter(v => v === a).length >= arr.filter(v => v === b).length ? a : b
     )
-    return mostCommonLevel
+    return mostCommonLevel ?? null
   }
 
   // Otherwise, determine level based on hierarchy depth
   // Find the deepest level that contains all selected segments
-  const maxDepth = Math.max(...Array.from(levels))
+  const levelsArray = Array.from(levels).filter((l): l is number => l !== null && l !== undefined)
+  const maxDepth = levelsArray.length > 0 ? Math.max(...levelsArray) : 0
   
   // If segments are at different levels, prefer showing leaf records (null)
   // This allows mixing levels in one view
@@ -944,17 +945,18 @@ export function prepareMultiLevelChartData(
       // Prefer leaf records (most granular) over aggregated records
       // If multiple records exist, use the one with the lowest aggregation level
       // (lower level = more granular = better for display)
+      const recordLevel = record.aggregation_level ?? 0
       if (record.is_aggregated === false) {
         // Leaf record - always prefer this
-        if (!group.bestRecord || group.bestLevel > record.aggregation_level) {
+        if (!group.bestRecord || (group.bestLevel ?? 0) > recordLevel) {
           group.bestRecord = record
-          group.bestLevel = record.aggregation_level
+          group.bestLevel = recordLevel
         }
       } else {
         // Aggregated record - only use if no leaf record exists
-        if (!group.bestRecord && group.bestLevel > record.aggregation_level) {
+        if (!group.bestRecord && (group.bestLevel ?? 0) > recordLevel) {
           group.bestRecord = record
-          group.bestLevel = record.aggregation_level
+          group.bestLevel = recordLevel
         }
       }
     })
@@ -1044,7 +1046,9 @@ export function prepareIntelligentMultiLevelData(
           bestRecord = groupRecords.reduce((best, current) => {
             if (!best) return current
             // Prefer lower aggregation level (more granular)
-            return current.aggregation_level < best.aggregation_level ? current : best
+            const currentLevel = current.aggregation_level ?? 0
+            const bestLevel = best.aggregation_level ?? 0
+            return currentLevel < bestLevel ? current : best
           }, null as DataRecord | null)
         }
         
