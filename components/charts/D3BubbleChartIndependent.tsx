@@ -559,13 +559,15 @@ export function D3BubbleChartIndependent({ title, height = 500 }: BubbleChartPro
 
       filteredRecords.forEach((record, index) => {
         // Parse CAGR - it might be a string like "9.5%" or a number
+        // Note: DataRecord defines cagr as number, but JSON data may have it as string
         let cagr = 0
         if (record.cagr !== null && record.cagr !== undefined) {
-          const cagrValue = record.cagr
+          // Type assertion to handle both string and number types
+          const cagrValue = record.cagr as unknown as number | string
           if (typeof cagrValue === 'string') {
             // Remove % and parse
             cagr = parseFloat(cagrValue.replace('%', '').trim()) || 0
-          } else if (typeof cagrValue === 'number') {
+          } else if (typeof cagrValue === 'number' && !isNaN(cagrValue)) {
             cagr = cagrValue
           }
         }
@@ -759,10 +761,10 @@ export function D3BubbleChartIndependent({ title, height = 500 }: BubbleChartPro
       const aggregatedRecord = segmentRecords.find(r => r.is_aggregated && r.cagr)
       if (aggregatedRecord && aggregatedRecord.cagr !== undefined && aggregatedRecord.cagr !== null) {
         // cagr is defined as number in DataRecord, but JSON might have it as string
-        const cagrValue: number | string = aggregatedRecord.cagr as any
+        const cagrValue = aggregatedRecord.cagr as unknown as number | string
         if (typeof cagrValue === 'string') {
           calculatedCAGR = parseFloat(cagrValue.replace('%', '').trim()) || 0
-        } else if (typeof cagrValue === 'number') {
+        } else if (typeof cagrValue === 'number' && !isNaN(cagrValue)) {
           calculatedCAGR = cagrValue
         }
       } else if (baseValue > 0 && forecastValue > 0) {
