@@ -13,9 +13,9 @@ const nextConfig: NextConfig = {
   output: 'standalone',
   // Increase memory limit for large JSON processing
   serverExternalPackages: ['fs', 'path'],
-  // Set empty turbopack config to silence Next.js 16 error (we're using webpack)
+  // Set empty turbopack config to silence Next.js 16 error (we're using webpack via --webpack flag)
   turbopack: {},
-  // Keep webpack config for backward compatibility (but Turbopack takes precedence)
+  // Webpack config - used when --webpack flag is passed in build script
   webpack: (config, { isServer }) => {
     if (!config.resolve) {
       config.resolve = {};
