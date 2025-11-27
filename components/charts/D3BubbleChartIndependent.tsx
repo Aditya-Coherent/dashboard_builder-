@@ -561,11 +561,12 @@ export function D3BubbleChartIndependent({ title, height = 500 }: BubbleChartPro
         // Parse CAGR - it might be a string like "9.5%" or a number
         let cagr = 0
         if (record.cagr !== null && record.cagr !== undefined) {
-          if (typeof record.cagr === 'string') {
+          const cagrValue = record.cagr
+          if (typeof cagrValue === 'string') {
             // Remove % and parse
-            cagr = parseFloat(record.cagr.replace('%', '').trim()) || 0
-          } else {
-            cagr = record.cagr
+            cagr = parseFloat(cagrValue.replace('%', '').trim()) || 0
+          } else if (typeof cagrValue === 'number') {
+            cagr = cagrValue
           }
         }
         
@@ -761,7 +762,7 @@ export function D3BubbleChartIndependent({ title, height = 500 }: BubbleChartPro
         const cagrValue: number | string = aggregatedRecord.cagr as any
         if (typeof cagrValue === 'string') {
           calculatedCAGR = parseFloat(cagrValue.replace('%', '').trim()) || 0
-        } else {
+        } else if (typeof cagrValue === 'number') {
           calculatedCAGR = cagrValue
         }
       } else if (baseValue > 0 && forecastValue > 0) {
