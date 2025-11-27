@@ -48,8 +48,7 @@ export async function POST(request: NextRequest) {
     } else {
       workbook = XLSX.read(fileBuffer, { 
         type: 'buffer',
-        raw: true, // Preserve raw values
-        defval: ''
+        raw: true // Preserve raw values
       })
     }
     
@@ -69,7 +68,6 @@ export async function POST(request: NextRequest) {
     // Convert to JSON array (preserving structure)
     const jsonData = XLSX.utils.sheet_to_json(worksheet, { 
       header: 1, // Array of arrays
-      defval: '',
       raw: true, // Keep raw values as-is
       blankrows: false
     }) as any[][]
