@@ -13,7 +13,13 @@ const nextConfig: NextConfig = {
   output: 'standalone',
   // Increase memory limit for large JSON processing
   serverExternalPackages: ['fs', 'path'],
-  // Configure webpack to resolve modules from parent directory
+  // Configure Turbopack (Next.js 16 default) - add alias support
+  turbopack: {
+    resolveAlias: {
+      '@excel-upload-tool': path.resolve(__dirname, './excel-upload-tool'),
+    },
+  },
+  // Keep webpack config for backward compatibility (but Turbopack takes precedence)
   webpack: (config, { isServer }) => {
     if (!config.resolve) {
       config.resolve = {};
