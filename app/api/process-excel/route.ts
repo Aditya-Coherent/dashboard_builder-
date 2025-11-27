@@ -328,14 +328,22 @@ export async function POST(request: NextRequest) {
     console.log('Sample of converted value JSON:', JSON.stringify(valueJsonWithAggregations, null, 2).substring(0, 500))
     
     // Create temporary JSON files for processing
-    const currentDir = process.cwd()
-    const tempDir = path.join(currentDir, 'temp')
+    // Use /tmp in serverless environments (Vercel, AWS Lambda) which is the only writable directory
+    // In local development, /tmp should also work, but we can fallback to os.tmpdir() if needed
+    const os = require('os')
+    const tempDir = process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME ? '/tmp' : os.tmpdir()
     
-    // Ensure temp directory exists
+    // Ensure temp directory exists (should already exist, but check anyway)
     try {
       await fs.access(tempDir)
     } catch {
-      await fs.mkdir(tempDir, { recursive: true })
+      // If temp doesn't exist, try to create it
+      try {
+        await fs.mkdir(tempDir, { recursive: true })
+      } catch (mkdirError) {
+        console.error('Failed to create temp directory:', mkdirError)
+        throw new Error(`Cannot create temporary directory: ${tempDir}`)
+      }
     }
     
     const tempValuePath = path.join(tempDir, `value_${Date.now()}.json`)

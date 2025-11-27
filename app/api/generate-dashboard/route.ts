@@ -77,15 +77,10 @@ export async function POST(request: NextRequest) {
     )
     
     // Create temporary JSON files for processing
-    const currentDir = process.cwd()
-    const tempDir = path.join(currentDir, 'temp')
-    
-    // Ensure temp directory exists
-    try {
-      await fs.access(tempDir)
-    } catch {
-      await fs.mkdir(tempDir, { recursive: true })
-    }
+    // Use /tmp in serverless environments (Vercel, AWS Lambda) which is the only writable directory
+    // /tmp is guaranteed to exist in serverless environments, so we don't need to create it
+    const os = require('os')
+    const tempDir = process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME ? '/tmp' : os.tmpdir()
     
     const tempValuePath = path.join(tempDir, `value_${Date.now()}.json`)
     const tempVolumePath = volumeJson ? path.join(tempDir, `volume_${Date.now()}.json`) : null
