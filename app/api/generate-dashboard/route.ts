@@ -151,7 +151,8 @@ export async function POST(request: NextRequest) {
     console.log('Dashboard generation completed successfully')
     
     // Return zip file as response
-    return new NextResponse(zipBuffer, {
+    // Convert Buffer to Uint8Array for NextResponse compatibility
+    return new NextResponse(new Uint8Array(zipBuffer), {
       headers: {
         'Content-Type': 'application/zip',
         'Content-Disposition': `attachment; filename="${projectName}.zip"`,
