@@ -6,8 +6,9 @@ import * as fs from 'fs/promises'
 import * as path from 'path'
 import { writeFile } from 'fs/promises'
 
-// Increase timeout for large file processing and zip generation (10 minutes)
-export const maxDuration = 600
+// Timeout for large file processing and zip generation (5 minutes - Vercel limit)
+// Note: Vercel free/hobby plan has a 300 second (5 minute) limit
+export const maxDuration = 300
 export const dynamic = 'force-dynamic'
 
 /**
