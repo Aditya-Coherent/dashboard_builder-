@@ -83,6 +83,7 @@ export interface FilterState {
   businessType: 'B2B' | 'B2C' | undefined;
   aggregationLevel?: number | null; // Filter by aggregation level (1-6, null = all levels)
   advancedSegments?: Array<{ type: string; segment: string; id: string }>; // Advanced segment selection with type info
+  showLevel1Totals?: boolean; // Show Level 1 aggregated totals in geography mode
 }
 
 export interface ChartDataPoint {
@@ -105,5 +106,16 @@ export interface ComparisonTableRow {
   cagr: number;
   growth: number;
   timeSeries: number[];
+}
+
+export interface GeographyHierarchyConfig {
+  [level: number]: {
+    [region: string]: string[]; // parent region -> child regions
+  };
+}
+
+export interface RegionExtractionResult {
+  regions: string[];
+  regionColumn: string;
 }
 

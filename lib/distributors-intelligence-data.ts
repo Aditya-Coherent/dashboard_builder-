@@ -165,12 +165,13 @@ export function getModuleSections(
 /**
  * Format distributor data for display
  */
-export function formatDistributorField(value: string | null | undefined): string {
-  if (!value || value.trim() === '') {
-    return 'N/A'
-  }
-  // Display the actual value, including 'xx' placeholders
-  return value.trim()
+export function formatDistributorField(value: any): string {
+  if (value === null || value === undefined) return 'N/A'
+  const str = String(value).trim()
+  if (str === '' || str === 'null' || str === 'undefined') return 'N/A'
+  // Preserve "xx" values
+  if (str.toLowerCase() === 'xx') return 'xx'
+  return str
 }
 
 /**
@@ -183,29 +184,33 @@ export interface TableColumn {
   width?: string
 }
 
-export function getTableColumnsForModule(module: string): TableColumn[] {
-  const columns: TableColumn[] = [
-    { key: 's_no', label: 'S.No.', section: '', width: 'w-16' }
-  ]
-
+export function getTableColumnsForModule(
+  data: DistributorsIntelligenceData | null,
+  module: string
+): TableColumn[] {
+  const columns: TableColumn[] = []
+  
+  // Try to get sections from metadata if available
+  const parentHeaders = (data?.metadata as any)?.parentHeaders
+  const section1 = parentHeaders?.prop1 || 'COMPANY INFORMATION'
+  const section2 = parentHeaders?.prop2 || 'CONTACT DETAILS'
+  
   if (module.includes('Standard')) {
-    // Module 1 - Standard (14 fields)
     columns.push(
-      // Company Information (7 fields)
-      { key: 'company_name', label: 'Company Name', section: 'COMPANY INFORMATION' },
-      { key: 'year_established', label: 'Year Established', section: 'COMPANY INFORMATION' },
-      { key: 'headquarters_emirate', label: 'Headquarters / Emirate', section: 'COMPANY INFORMATION' },
-      { key: 'cities_regions_covered', label: 'Cities / Regions Covered', section: 'COMPANY INFORMATION' },
-      { key: 'ownership_type', label: 'Ownership Type', section: 'COMPANY INFORMATION' },
-      { key: 'business_type', label: 'Business Type', section: 'COMPANY INFORMATION' },
-      { key: 'no_of_employees', label: 'No. of Employees', section: 'COMPANY INFORMATION' },
-      // Contact Details (6 fields)
-      { key: 'key_contact_person', label: 'Key Contact Person', section: 'CONTACT DETAILS' },
-      { key: 'designation_role', label: 'Designation / Role', section: 'CONTACT DETAILS' },
-      { key: 'email_address', label: 'Email Address', section: 'CONTACT DETAILS' },
-      { key: 'phone_whatsapp', label: 'Phone / WhatsApp', section: 'CONTACT DETAILS' },
-      { key: 'linkedin_profile', label: 'LinkedIn Profile', section: 'CONTACT DETAILS' },
-      { key: 'website_url', label: 'Website URL', section: 'CONTACT DETAILS' }
+      { key: 's_no', label: 'S.No.', section: '' },
+      { key: 'company_name', label: 'Company Name', section: section1 },
+      { key: 'year_established', label: 'Year Established', section: section1 },
+      { key: 'headquarters_emirate', label: 'Headquarters / Emirate', section: section1 },
+      { key: 'cities_regions_covered', label: 'Cities / Regions Covered', section: section1 },
+      { key: 'ownership_type', label: 'Ownership Type', section: section1 },
+      { key: 'business_type', label: 'Business Type', section: section1 },
+      { key: 'no_of_employees', label: 'No. of Employees', section: section1 },
+      { key: 'key_contact_person', label: 'Key Contact Person', section: section2 },
+      { key: 'designation_role', label: 'Designation / Role', section: section2 },
+      { key: 'email_address', label: 'Email Address', section: section2 },
+      { key: 'phone_whatsapp', label: 'Phone / WhatsApp', section: section2 },
+      { key: 'linkedin_profile', label: 'LinkedIn Profile', section: section2 },
+      { key: 'website_url', label: 'Website URL', section: section2 }
     )
   } else if (module.includes('Advance')) {
     // Module 2 - Advance (18 fields)

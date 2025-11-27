@@ -310,12 +310,15 @@ export function EnhancedFilterPanel() {
       </div>
 
       {/* Geography Selection */}
-      <div>
+      <div className="border-t pt-2.5">
+        <label className="text-xs font-medium text-black uppercase mb-2 block">
+          Geography Selection
+        </label>
         <GeographyMultiSelect />
         
         {/* Selected Geographies Display */}
         {filters.geographies.length > 0 && (
-          <div className="mt-1 p-1.5 bg-blue-50 rounded">
+          <div className="mt-2 p-1.5 bg-blue-50 rounded">
             <div className="flex items-center justify-between mb-1">
               <div className="flex items-center text-xs font-medium text-blue-900">
                 <MapPin className="h-3 w-3 mr-1" />
@@ -533,10 +536,10 @@ export function EnhancedFilterPanel() {
         <YearRangeSlider />
       </div>
 
-      {/* Aggregation Level Selector */}
-      <div>
+      {/* Aggregation Level Selector - HIDDEN: Levels are now determined automatically based on selected segments */}
+      {/* <div>
         <AggregationLevelSelector />
-      </div>
+      </div> */}
 
       {/* Summary */}
       {(filters.geographies.length > 0 || selectedSegments.length > 0) && (
@@ -549,7 +552,7 @@ export function EnhancedFilterPanel() {
             <div>📊 {selectedSegments.length} segments from {new Set(selectedSegments.map(s => s.type)).size} types</div>
             <div>📅 Years: {filters.yearRange[0]} - {filters.yearRange[1]}</div>
             <div>📈 Data: {filters.dataType}</div>
-            <div>🔢 Level: {filters.aggregationLevel === null ? 'All' : filters.aggregationLevel}</div>
+            <div>🔢 Level: Auto (based on selected segments)</div>
           </div>
         </div>
       )}

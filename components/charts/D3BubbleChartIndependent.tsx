@@ -222,7 +222,7 @@ interface SelectedSegmentItem {
 }
 
 export function D3BubbleChartIndependent({ title, height = 500 }: BubbleChartProps) {
-  const { data, filters, opportunityFilters, updateFilters, updateOpportunityFilters, selectedChartGroup } = useDashboardStore()
+  const { data, filters, opportunityFilters, updateFilters, updateOpportunityFilters, selectedChartGroup, currency } = useDashboardStore()
   const svgRef = useRef<SVGSVGElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [dimensions, setDimensions] = useState({ width: 800, height })
@@ -234,6 +234,38 @@ export function D3BubbleChartIndependent({ title, height = 500 }: BubbleChartPro
   const isOpportunityMode = selectedChartGroup === 'coherent-opportunity'
   const activeFilters = isOpportunityMode ? opportunityFilters : filters
   const updateActiveFilters = isOpportunityMode ? updateOpportunityFilters : updateFilters
+  
+  // State for error messages
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [debugInfo, setDebugInfo] = useState<any>(null)
+
+  // Debug: Log when component renders with opportunity mode
+  useEffect(() => {
+    if (isOpportunityMode) {
+      const debugData = {
+        hasData: !!data,
+        hasDataData: !!data?.data,
+        hasValueMatrix: !!data?.data?.value?.geography_segment_matrix,
+        hasVolumeMatrix: !!data?.data?.volume?.geography_segment_matrix,
+        valueMatrixLength: data?.data?.value?.geography_segment_matrix?.length || 0,
+        volumeMatrixLength: data?.data?.volume?.geography_segment_matrix?.length || 0,
+        activeFilters,
+        selectedChartGroup,
+        allGeographies: data?.dimensions?.geographies?.all_geographies || [],
+        allSegmentTypes: data?.dimensions?.segments ? Object.keys(data.dimensions.segments) : [],
+        selectedGeographies: activeFilters.geographies,
+        selectedSegmentType: activeFilters.segmentType,
+        aggregationLevel: activeFilters.aggregationLevel,
+        selectedSegments: activeFilters.segments,
+        dataType: activeFilters.dataType
+      }
+      console.log('🎯 D3BubbleChartIndependent: Opportunity mode active', debugData)
+      setDebugInfo(debugData)
+    } else {
+      setErrorMessage(null)
+      setDebugInfo(null)
+    }
+  }, [isOpportunityMode, data, activeFilters, selectedChartGroup])
   
   // For opportunity mode: Simple geography and segment type selection
   // For regular mode: Keep existing logic
@@ -352,53 +384,163 @@ export function D3BubbleChartIndependent({ title, height = 500 }: BubbleChartPro
   // Calculate chart data based on selected filters
   const chartData = useMemo(() => {
     if (!data) {
+      console.warn('D3BubbleChartIndependent: No data available')
+      return { bubbles: [], xLabel: '', yLabel: '', totalBubbles: 0 }
+    }
+    
+    // Check if required data structure exists
+    if (!data.data || !data.data.value || !data.data.value.geography_segment_matrix) {
+      console.error('D3BubbleChartIndependent: Missing data structure', {
+        hasData: !!data,
+        hasDataData: !!data.data,
+        hasValue: !!data.data?.value,
+        hasMatrix: !!data.data?.value?.geography_segment_matrix,
+        dataKeys: data ? Object.keys(data) : [],
+        dataDataKeys: data.data ? Object.keys(data.data) : []
+      })
       return { bubbles: [], xLabel: '', yLabel: '', totalBubbles: 0 }
     }
 
     // For opportunity mode: Simple Geography x Segment Type matrix using CAGR from JSON
     if (isOpportunityMode) {
       const dataset = activeFilters.dataType === 'value'
-        ? data.data.value.geography_segment_matrix
-        : data.data.volume.geography_segment_matrix
+        ? (data.data.value?.geography_segment_matrix || [])
+        : (data.data.volume?.geography_segment_matrix || [])
+      
+      if (!dataset || dataset.length === 0) {
+        const errorDetails = {
+          dataType: activeFilters.dataType,
+          hasValueMatrix: !!data.data.value?.geography_segment_matrix,
+          hasVolumeMatrix: !!data.data.volume?.geography_segment_matrix,
+          valueLength: data.data.value?.geography_segment_matrix?.length || 0,
+          volumeLength: data.data.volume?.geography_segment_matrix?.length || 0,
+          hasData: !!data,
+          hasDataData: !!data?.data,
+          dataKeys: data?.data ? Object.keys(data.data) : []
+        }
+        console.error('❌ D3BubbleChartIndependent: No data in matrix for opportunity mode', errorDetails)
+        setErrorMessage(`No ${activeFilters.dataType} data available. Please check your data source.`)
+        setDebugInfo(errorDetails)
+        return { bubbles: [], xLabel: '', yLabel: '', totalBubbles: 0 }
+      }
+      
+      setErrorMessage(null) // Clear error if we have data
 
       // Get all geographies and segment types
       const allGeographies = data.dimensions.geographies.all_geographies || []
       const allSegmentTypes = Object.keys(data.dimensions.segments) || []
       
-      // Filter geographies if selected
-      const geographiesToShow = activeFilters.geographies.length > 0 
-        ? activeFilters.geographies 
-        : allGeographies
-      
-      // Filter segment types if selected
-      const segmentTypesToShow = activeFilters.segmentType 
-        ? [activeFilters.segmentType]
-        : allSegmentTypes
-
-      // Get records at the selected aggregation level
-      // If aggregation level is null, use Level 1 (total aggregation)
-      const targetLevel = activeFilters.aggregationLevel !== null && activeFilters.aggregationLevel !== undefined
-        ? activeFilters.aggregationLevel
-        : 1
-
-      // Filter records by aggregation level, geography, and segment type
-      let filteredRecords = dataset.filter(record => 
-        record.aggregation_level === targetLevel &&
-        geographiesToShow.includes(record.geography) &&
-        segmentTypesToShow.includes(record.segment_type)
-      )
-
-      // For Level 1, segment should be '__ALL_SEGMENTS__' (unless segments are selected)
-      if (targetLevel === 1 && (!activeFilters.segments || activeFilters.segments.length === 0)) {
-        filteredRecords = filteredRecords.filter(record => record.segment === '__ALL_SEGMENTS__')
+      if (allGeographies.length === 0) {
+        console.error('❌ D3BubbleChartIndependent: No geographies found in data dimensions')
+        setErrorMessage('No geographies found in data. Please check your data structure.')
+        return { bubbles: [], xLabel: '', yLabel: '', totalBubbles: 0 }
       }
       
-      // If segments are selected, filter by those segments
-      if (activeFilters.segments && activeFilters.segments.length > 0) {
-        filteredRecords = filteredRecords.filter(record => 
-          activeFilters.segments.includes(record.segment)
-        )
+      if (allSegmentTypes.length === 0) {
+        console.error('❌ D3BubbleChartIndependent: No segment types found in data dimensions')
+        setErrorMessage('No segment types found in data. Please check your data structure.')
+        return { bubbles: [], xLabel: '', yLabel: '', totalBubbles: 0 }
       }
+      
+      // Use the shared filterData function to ensure consistent filtering logic
+      // This handles aggregation levels, geography, segment type, and segments correctly
+      console.log('🎯 Opportunity Matrix Debug - Initial State:', {
+        datasetLength: dataset.length,
+        activeFilters: activeFilters,
+        sampleRecord: dataset[0],
+        hasAggregationLevel: dataset[0]?.aggregation_level !== undefined,
+        aggregationLevelValue: dataset[0]?.aggregation_level,
+        hasGeography: dataset[0]?.geography !== undefined,
+        hasSegmentType: dataset[0]?.segment_type !== undefined,
+        hasSegment: dataset[0]?.segment !== undefined,
+        hasCAGR: dataset[0]?.cagr !== undefined,
+        cagrValue: dataset[0]?.cagr
+      })
+
+      // Use filterData to apply all filters consistently with other charts
+      let filteredRecords = filterData(dataset, activeFilters)
+      
+      console.log('🎯 After filterData:', {
+        before: dataset.length,
+        after: filteredRecords.length,
+        filters: {
+          geographies: activeFilters.geographies,
+          segmentType: activeFilters.segmentType,
+          aggregationLevel: activeFilters.aggregationLevel,
+          segments: activeFilters.segments
+        },
+        sampleAfterFilter: filteredRecords[0]
+      })
+
+      // filterData already handles all filtering including segments, so no need for additional steps
+      
+      // Final validation with detailed debugging
+      if (filteredRecords.length === 0) {
+        // Get unique values for error reporting
+        const uniqueGeographies = [...new Set(dataset.map(r => r.geography).filter(g => g))]
+        const uniqueSegmentTypes = [...new Set(dataset.map(r => r.segment_type).filter(s => s))]
+        const uniqueSegments = [...new Set(dataset.map(r => r.segment).filter(s => s))]
+        const uniqueAggregationLevels = [...new Set(dataset.map(r => r.aggregation_level).filter(l => l !== null && l !== undefined))]
+        
+        // Check what records exist after filterData
+        const afterFilterData = filterData(dataset, activeFilters)
+        
+        const errorDetails = {
+          datasetLength: dataset.length,
+          afterFilterDataLength: afterFilterData.length,
+          activeFilters: {
+            geographies: activeFilters.geographies,
+            segmentType: activeFilters.segmentType,
+            segments: activeFilters.segments,
+            aggregationLevel: activeFilters.aggregationLevel,
+            dataType: activeFilters.dataType
+          },
+          availableGeographies: uniqueGeographies,
+          availableSegmentTypes: uniqueSegmentTypes,
+          availableAggregationLevels: uniqueAggregationLevels,
+          availableSegments: uniqueSegments.slice(0, 20),
+          sampleRecord: dataset[0],
+          sampleAfterFilter: afterFilterData[0]
+        }
+        console.error('❌ D3BubbleChartIndependent: No records match the filters', errorDetails)
+        
+        // Provide more specific error message
+        let errorMsg = 'No data matches the current filters.\n\n'
+        if (afterFilterData.length === 0) {
+          if (activeFilters.aggregationLevel !== null && activeFilters.aggregationLevel !== undefined) {
+            errorMsg += `❌ No records found for aggregation level ${activeFilters.aggregationLevel}.\n`
+            errorMsg += `   Available levels: ${uniqueAggregationLevels.join(', ')}\n`
+          }
+          if (activeFilters.geographies.length > 0) {
+            errorMsg += `❌ No records found for selected geographies: ${activeFilters.geographies.join(', ')}.\n`
+            errorMsg += `   Available geographies: ${uniqueGeographies.slice(0, 10).join(', ')}\n`
+          }
+          if (activeFilters.segmentType) {
+            errorMsg += `❌ No records found for selected segment type: ${activeFilters.segmentType}.\n`
+            errorMsg += `   Available segment types: ${uniqueSegmentTypes.slice(0, 10).join(', ')}\n`
+          }
+          if (activeFilters.segments && activeFilters.segments.length > 0) {
+            errorMsg += `❌ No records found for selected segments.\n`
+            errorMsg += `   Selected: ${activeFilters.segments.slice(0, 5).join(', ')}...\n`
+            errorMsg += `   Available: ${uniqueSegments.slice(0, 10).join(', ')}\n`
+          }
+        }
+        errorMsg += '\n💡 Try: Clear filters or adjust Geography/Segment Type/Aggregation Level filters.'
+        
+        setErrorMessage(errorMsg)
+        setDebugInfo(errorDetails)
+        return { bubbles: [], xLabel: '', yLabel: '', totalBubbles: 0 }
+      }
+      
+      console.log('✅ Final filtered records after filterData:', {
+        count: filteredRecords.length,
+        sample: filteredRecords[0],
+        geographies: [...new Set(filteredRecords.map(r => r.geography))],
+        segmentTypes: [...new Set(filteredRecords.map(r => r.segment_type))],
+        segments: [...new Set(filteredRecords.map(r => r.segment))].slice(0, 10)
+      })
+      
+      setErrorMessage(null) // Clear error if we have filtered records
 
       // Build matrix: Geography x Segment Type with CAGR from JSON
       const bubbles: BubbleDataPoint[] = []
@@ -416,7 +558,17 @@ export function D3BubbleChartIndependent({ title, height = 500 }: BubbleChartPro
       })
 
       filteredRecords.forEach((record, index) => {
-        const cagr = record.cagr || 0 // Use CAGR directly from JSON
+        // Parse CAGR - it might be a string like "9.5%" or a number
+        let cagr = 0
+        if (record.cagr !== null && record.cagr !== undefined) {
+          if (typeof record.cagr === 'string') {
+            // Remove % and parse
+            cagr = parseFloat(record.cagr.replace('%', '').trim()) || 0
+          } else {
+            cagr = record.cagr
+          }
+        }
+        
         const value = record.time_series[endYear] || 0
         const baseValue = record.time_series[startYear] || 0
         
@@ -424,21 +576,28 @@ export function D3BubbleChartIndependent({ title, height = 500 }: BubbleChartPro
         const cagrIndex = maxCAGR > 0 ? (Math.abs(cagr) / maxCAGR) * 100 : 0
         const valueIndex = maxValue > 0 ? (value / maxValue) * 100 : 0
         
-        // For Level 1, use segment_type as the segment name
-        // For other levels, use the actual segment name
-        const segmentName = targetLevel === 1 ? record.segment_type : record.segment
+        // For Level 1 with __ALL_SEGMENTS__, use segment_type
+        // For other cases, use actual segment name
+        const segmentName = (activeFilters.aggregationLevel === 1 && record.segment === '__ALL_SEGMENTS__')
+          ? record.segment_type
+          : record.segment
+        
+        // Create bubble name: Geography - Segment
+        const bubbleName = segmentName && segmentName !== '__ALL_SEGMENTS__'
+          ? `${record.geography} - ${segmentName}`
+          : `${record.geography} - ${record.segment_type}`
         
         bubbles.push({
-          name: `${record.geography} - ${segmentName}`,
+          name: bubbleName,
           x: cagrIndex,
           y: valueIndex,
           z: cagrIndex, // Use CAGR index for bubble size
           radius: 0, // Will be calculated
           geography: record.geography,
-          segment: segmentName,
+          segment: segmentName || record.segment,
           segmentType: record.segment_type,
           currentValue: value,
-          cagr: cagr, // CAGR from JSON
+          cagr: cagr, // CAGR from JSON (parsed)
           marketShare: 0,
           absoluteGrowth: value - baseValue,
           color: getChartColor(index % 10),
@@ -448,10 +607,71 @@ export function D3BubbleChartIndependent({ title, height = 500 }: BubbleChartPro
         })
       })
 
+      if (bubbles.length === 0) {
+        console.error('❌ D3BubbleChartIndependent: No bubbles created from filtered records', {
+          filteredRecordsCount: filteredRecords.length,
+          sampleRecord: filteredRecords[0],
+          hasCAGR: filteredRecords[0]?.cagr !== undefined,
+          hasTimeSeries: filteredRecords[0]?.time_series !== undefined,
+          endYear,
+          startYear
+        })
+        setErrorMessage('No bubbles could be created from the filtered data. Check if records have CAGR and time_series data.')
+        return { bubbles: [], xLabel: '', yLabel: '', totalBubbles: 0 }
+      }
+      
+      // Apply tiered sizing with 20% reduction between tiers
+      const maxBubbleRadius = 60 // Adjust based on chart size
+      const minBubbleRadius = 15
+      const sizeReductionPercent = 0.20 // 20% reduction per tier
+      
+      // Sort bubbles by CAGR (z value) in descending order
+      const sortedBubbles = [...bubbles].sort((a, b) => b.z - a.z)
+      
+      // Calculate tier sizes
+      const tiers: number[] = []
+      let currentSize = maxBubbleRadius
+      
+      while (currentSize >= minBubbleRadius) {
+        tiers.push(currentSize)
+        currentSize = currentSize * (1 - sizeReductionPercent)
+      }
+      
+      // Ensure we have at least one tier
+      if (tiers.length === 0) {
+        tiers.push(maxBubbleRadius)
+      }
+      
+      // Assign tiered sizes based on sorted order
+      sortedBubbles.forEach((bubble, index) => {
+        const tierIndex = Math.min(index, tiers.length - 1)
+        bubble.radius = Math.max(tiers[tierIndex], minBubbleRadius)
+      })
+      
+      // Update original bubbles array with tiered radii
+      const radiusMap = new Map(sortedBubbles.map(b => [b.name, b.radius]))
+      bubbles.forEach(bubble => {
+        bubble.radius = radiusMap.get(bubble.name) || minBubbleRadius
+      })
+      
       const limitedBubbles = bubbles.slice(0, maxBubbles)
+      console.log('✅ Opportunity Matrix: Bubbles created successfully', {
+        totalBubbles: bubbles.length,
+        displayedBubbles: limitedBubbles.length,
+        maxBubbles,
+        tiersCreated: tiers.length,
+        top5Sizes: sortedBubbles.slice(0, 5).map(b => ({
+          name: b.name,
+          zValue: b.z.toFixed(1),
+          radius: b.radius.toFixed(1)
+        })),
+        sampleBubble: limitedBubbles[0]
+      })
+      
+      setErrorMessage(null) // Clear error if bubbles were created
       return { 
         bubbles: limitedBubbles, 
-        xLabel: 'CAGR Index (from JSON)', 
+        xLabel: 'CAGR Index', 
         yLabel: 'Market Size Index', 
         totalBubbles: bubbles.length 
       }
@@ -695,17 +915,57 @@ export function D3BubbleChartIndependent({ title, height = 500 }: BubbleChartPro
     const yExtent = d3.extent(chartData.bubbles, d => d.y) as [number, number]
     const zExtent = d3.extent(chartData.bubbles, d => d.z) as [number, number]
 
-    // Calculate bubble sizes - Scale based on Incremental Opportunity Index (0-100)
+    // Calculate bubble sizes with tiered sizing (minimum 20% reduction between tiers)
     const maxBubbleRadius = Math.min(width, height) / 8
     const minBubbleRadius = 20
-
-    const radiusScale = d3.scaleSqrt()
-      .domain([0, 100]) // Index is 0-100
-      .range([minBubbleRadius, maxBubbleRadius])
-
-    // Update bubble radii
+    
+    // Sort bubbles by z value (CAGR index) in descending order
+    const sortedBubbles = [...chartData.bubbles].sort((a, b) => b.z - a.z)
+    
+    // Assign tiered sizes with minimum 20% reduction between tiers
+    const sizeReductionPercent = 0.20 // 20% reduction per tier
+    const tiers: number[] = []
+    
+    // Calculate tier sizes starting from max radius
+    let currentSize = maxBubbleRadius
+    const minSize = minBubbleRadius
+    
+    // Create enough tiers for all bubbles
+    while (currentSize >= minSize) {
+      tiers.push(currentSize)
+      currentSize = currentSize * (1 - sizeReductionPercent)
+    }
+    
+    // Ensure we have at least one tier
+    if (tiers.length === 0) {
+      tiers.push(maxBubbleRadius)
+    }
+    
+    // Assign sizes based on sorted order (largest z = largest bubble)
+    sortedBubbles.forEach((bubble, index) => {
+      // Use tier index, but ensure we don't go below minimum
+      const tierIndex = Math.min(index, tiers.length - 1)
+      bubble.radius = Math.max(tiers[tierIndex], minBubbleRadius)
+    })
+    
+    // Update the original bubbles array with new radii
+    // Create a map for quick lookup
+    const radiusMap = new Map(sortedBubbles.map(b => [b.name, b.radius]))
     chartData.bubbles.forEach(bubble => {
-      bubble.radius = radiusScale(bubble.z)
+      bubble.radius = radiusMap.get(bubble.name) || minBubbleRadius
+    })
+    
+    // Log size distribution for debugging
+    console.log('🎯 Bubble Size Distribution:', {
+      totalBubbles: chartData.bubbles.length,
+      maxRadius: maxBubbleRadius.toFixed(1),
+      minRadius: minBubbleRadius.toFixed(1),
+      tiersCreated: tiers.length,
+      top5Sizes: sortedBubbles.slice(0, 5).map(b => ({
+        name: b.name,
+        zValue: b.z.toFixed(1),
+        radius: b.radius.toFixed(1)
+      }))
     })
 
     const maxRadius = Math.max(...chartData.bubbles.map(b => b.radius))
@@ -859,16 +1119,78 @@ export function D3BubbleChartIndependent({ title, height = 500 }: BubbleChartPro
 
   if (!data) {
     return (
-      <div className="flex items-center justify-center h-96 bg-gray-50 rounded-lg">
-        <div className="text-center">
-          <p className="text-black">Loading data...</p>
+      <div className="flex items-center justify-center h-96 bg-gray-50 rounded-lg border border-gray-200">
+        <div className="text-center max-w-md px-4">
+          <div className="text-4xl mb-4">📊</div>
+          <p className="text-lg font-semibold text-black mb-2">Loading data...</p>
+          <p className="text-sm text-gray-600">Please wait while we load the dashboard data.</p>
         </div>
       </div>
     )
   }
 
+  // Show error message if chart can't render
+  if (errorMessage && isOpportunityMode) {
+    return (
+      <div className="flex items-center justify-center h-96 bg-red-50 rounded-lg border-2 border-red-200">
+        <div className="text-center max-w-2xl px-6">
+          <div className="text-5xl mb-4">⚠️</div>
+          <h3 className="text-xl font-bold text-red-800 mb-3">Opportunity Matrix Error</h3>
+          <p className="text-base text-red-700 mb-4">{errorMessage}</p>
+          {debugInfo && (
+            <details className="mt-4 text-left">
+              <summary className="cursor-pointer text-sm font-semibold text-red-600 hover:text-red-800 mb-2">
+                Debug Information (Click to expand)
+              </summary>
+              <div className="bg-white p-4 rounded border border-red-200 max-h-64 overflow-y-auto">
+                <pre className="text-xs text-gray-800 whitespace-pre-wrap">
+                  {JSON.stringify(debugInfo, null, 2)}
+                </pre>
+              </div>
+            </details>
+          )}
+          <div className="mt-4 text-sm text-gray-600">
+            <p className="font-semibold mb-2">Troubleshooting steps:</p>
+            <ul className="list-disc list-inside space-y-1 text-left max-w-md mx-auto">
+              <li>Check if data is loaded correctly</li>
+              <li>Try selecting different geographies</li>
+              <li>Try selecting different segment types</li>
+              <li>Try changing the aggregation level</li>
+              <li>Check the browser console for detailed logs</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Show message if no bubbles but no error (edge case)
+  if (chartData.bubbles.length === 0 && !errorMessage) {
+    return (
+      <div className="flex items-center justify-center h-96 bg-yellow-50 rounded-lg border-2 border-yellow-200">
+        <div className="text-center max-w-md px-4">
+          <div className="text-4xl mb-4">🔍</div>
+          <h3 className="text-lg font-semibold text-yellow-800 mb-2">No Data to Display</h3>
+          <p className="text-sm text-yellow-700 mb-4">
+            The Opportunity Matrix has no data to display with the current filters.
+          </p>
+          <p className="text-xs text-yellow-600">
+            Try adjusting your filters or check the console for more details.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  const selectedCurrency = currency || data.metadata.currency || 'USD'
+  const isINR = selectedCurrency === 'INR'
+  const currencySymbol = isINR ? '₹' : '$'
+  const unitText = isINR ? '' : (data.metadata.value_unit || 'Million')
+  
   const unit = filters.dataType === 'value'
-    ? `${data.metadata.currency} ${data.metadata.value_unit}`
+    ? isINR 
+      ? currencySymbol
+      : `${selectedCurrency} ${unitText}`
     : data.metadata.volume_unit
 
   return (

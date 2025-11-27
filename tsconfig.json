@@ -19,7 +19,8 @@
       }
     ],
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./*"],
+      "@excel-upload-tool/*": ["./excel-upload-tool/*"]
     }
   },
   "include": [

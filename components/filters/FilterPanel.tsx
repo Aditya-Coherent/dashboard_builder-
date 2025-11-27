@@ -84,6 +84,7 @@ export function FilterPanel() {
         </p>
       </div>
 
+
       {/* Geography Filter */}
       <div className="border-t pt-4">
         <GeographyMultiSelect />

@@ -3,16 +3,18 @@
 import { useMemo, useState, useCallback, useRef, useEffect } from 'react'
 import { useDashboardStore } from '@/lib/store'
 import { 
-  generateCustomerIntelligenceData, 
+  loadCustomerIntelligenceData,
   getCustomersForCell,
   getCustomerCountForCell,
   type CustomerIntelligenceData,
   type Customer
 } from '@/lib/customer-intelligence-data'
+import { convertCustomerDataToIntelligenceFormat } from '@/lib/intelligence-data-converter'
 
 interface CustomerIntelligenceHeatmapProps {
   title?: string
   height?: number
+  filePath?: string // Optional file path for dynamic loading (for dashboard builder)
 }
 
 interface CustomerDetailModalProps {
@@ -83,8 +85,8 @@ function CustomerDetailModal({ isOpen, onClose, customers, region, industryCateg
   )
 }
 
-export function CustomerIntelligenceHeatmap({ title, height = 600 }: CustomerIntelligenceHeatmapProps) {
-  const { data } = useDashboardStore()
+export function CustomerIntelligenceHeatmap({ title, height = 600, filePath }: CustomerIntelligenceHeatmapProps) {
+  const { data, customerIntelligenceData: manualCustomerData } = useDashboardStore()
   const [hoveredCell, setHoveredCell] = useState<{ 
     region: string
     endUserSegment: string
@@ -98,37 +100,139 @@ export function CustomerIntelligenceHeatmap({ title, height = 600 }: CustomerInt
     customers: Customer[]
   } | null>(null)
   const [isTooltipHovered, setIsTooltipHovered] = useState(false)
+  const [customerData, setCustomerData] = useState<CustomerIntelligenceData[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const closeTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
-  // Generate customer intelligence data (memoized)
-  const customerData = useMemo(() => {
-    return generateCustomerIntelligenceData()
-  }, [])
+  // Load customer intelligence data - check manual input first, then API
+  useEffect(() => {
+    const abortController = new AbortController()
+    let isMounted = true
+    
+    async function loadData() {
+      try {
+        // Check if component is still mounted before starting
+        if (!isMounted || abortController.signal.aborted) return
+        
+        setIsLoading(true)
+        setLoadError(null)
+        
+        // First, check if we have manual input data
+        console.log('🔍 CustomerIntelligenceHeatmap: Checking for manual data', {
+          hasData: !!manualCustomerData,
+          dataLength: manualCustomerData?.length,
+          dataSample: manualCustomerData?.[0]
+        })
+        
+        if (manualCustomerData && manualCustomerData.length > 0) {
+          console.log('✅ Found manual customer data, converting...')
+          const convertedData = convertCustomerDataToIntelligenceFormat(manualCustomerData)
+          console.log('📊 Converted customer data:', {
+            regionCount: convertedData.length,
+            sample: convertedData[0]
+          })
+          
+          if (isMounted && !abortController.signal.aborted) {
+            setCustomerData(convertedData)
+            setIsLoading(false)
+            console.log('✅ Customer data loaded successfully')
+          }
+          return
+        }
+        
+        console.log('⚠️ No manual customer data found, loading from API...')
+        
+        // Otherwise, load from API
+        const loadedData = await loadCustomerIntelligenceData(filePath)
+        
+        // Only update state if component is still mounted and not aborted
+        if (isMounted && !abortController.signal.aborted) {
+          setCustomerData(loadedData)
+          setIsLoading(false)
+        }
+      } catch (error) {
+        // Only handle error if component is still mounted
+        if (isMounted && !abortController.signal.aborted) {
+          console.error('Error loading customer intelligence data:', error)
+          const errorMessage = error instanceof Error ? error.message : 'Failed to load customer intelligence data'
+          setLoadError(errorMessage)
+          setIsLoading(false)
+        }
+      }
+    }
+    
+    // Small delay to ensure component is fully mounted (helps with HMR)
+    const timeoutId = setTimeout(() => {
+      if (isMounted && !abortController.signal.aborted) {
+        loadData()
+      }
+    }, 10)
+    
+    // Cleanup function to prevent state updates after unmount
+    return () => {
+      isMounted = false
+      abortController.abort()
+      clearTimeout(timeoutId)
+    }
+  }, [filePath, manualCustomerData]) // Reload when filePath or manual data changes
 
-  // Get regions and industry categories from data
+  // Get regions and industry categories from loaded customer data or dashboard data
   const { regions, endUserSegments } = useMemo(() => {
-    if (!data) {
-      return { regions: [], endUserSegments: [] }
+    // Default regions and segments if data is not available
+    const defaultRegions = [
+      'North America',
+      'Latin America',
+      'Europe',
+      'Asia Pacific',
+      'Middle East',
+      'Africa'
+    ]
+    
+    const defaultSegments = [
+      'Hospital',
+      'Speciality Center',
+      'Research Institute',
+      'Retail Pharmacy'
+    ]
+
+    // First, try to extract regions and segments from loaded customer data
+    if (customerData.length > 0) {
+      const uniqueRegions = [...new Set(customerData.map(d => d.region))].filter(r => r && r !== 'Unknown')
+      const uniqueSegments = [...new Set(customerData.map(d => d.endUserSegment))].filter(s => s && s !== 'Unknown')
+      
+      if (uniqueRegions.length > 0 && uniqueSegments.length > 0) {
+        return {
+          regions: uniqueRegions.sort(),
+          endUserSegments: uniqueSegments.sort()
+        }
+      }
     }
 
-    // Get regions from dimensions
-    const allRegions = data.dimensions.geographies.regions || []
-    
-    // Get end user segments from dimensions and add Retail Pharmacy
-    const endUserDimension = data.dimensions.segments['By End User']
-    const segments = endUserDimension?.items || []
-    
-    // Ensure we have all 4 industry categories (add Retail Pharmacy if not present)
-    const allSegments = [...segments]
-    if (!allSegments.includes('Retail Pharmacy')) {
-      allSegments.push('Retail Pharmacy')
+    // Fall back to dashboard data if available
+    if (data) {
+      // Get regions from dimensions
+      const allRegions = data.dimensions.geographies.regions || defaultRegions
+      
+      // Get end user segments from dimensions and add Retail Pharmacy
+      const endUserDimension = data.dimensions.segments['By End User']
+      const segments = endUserDimension?.items || []
+      
+      // Ensure we have all 4 industry categories (add Retail Pharmacy if not present)
+      const allSegments = segments.length > 0 ? [...segments] : [...defaultSegments]
+      if (!allSegments.includes('Retail Pharmacy')) {
+        allSegments.push('Retail Pharmacy')
+      }
+
+      return {
+        regions: allRegions.length > 0 ? allRegions : defaultRegions,
+        endUserSegments: allSegments.length > 0 ? allSegments : defaultSegments
+      }
     }
 
-    return {
-      regions: allRegions,
-      endUserSegments: allSegments
-    }
-  }, [data])
+    // Final fallback to defaults
+    return { regions: defaultRegions, endUserSegments: defaultSegments }
+  }, [customerData, data])
 
   // Calculate color intensity based on customer count using palette colors
   const getColor = useCallback((count: number, maxCount: number) => {
@@ -204,13 +308,38 @@ export function CustomerIntelligenceHeatmap({ title, height = 600 }: CustomerInt
     }, 150)
   }, [])
 
-  if (!data || regions.length === 0 || endUserSegments.length === 0) {
+  // Show loading state
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-96 bg-gray-50 rounded-lg">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#168AAD] mx-auto mb-4"></div>
+          <p className="text-black">Loading customer intelligence data...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Show error state
+  if (loadError) {
+    return (
+      <div className="flex items-center justify-center h-96 bg-gray-50 rounded-lg">
+        <div className="text-center">
+          <p className="text-red-600 mb-2">Error loading data</p>
+          <p className="text-sm text-gray-600">{loadError}</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Show empty state if no data
+  if (customerData.length === 0 || regions.length === 0 || endUserSegments.length === 0) {
     return (
       <div className="flex items-center justify-center h-96 bg-gray-50 rounded-lg">
         <div className="text-center">
           <p className="text-black">No data to display</p>
           <p className="text-sm text-black mt-1">
-            Customer intelligence data is being loaded...
+            Customer intelligence data is not available
           </p>
         </div>
       </div>

@@ -12,7 +12,7 @@ import {
   ResponsiveContainer
 } from 'recharts'
 import { CHART_THEME, getChartColor, CHART_COLORS } from '@/lib/chart-theme'
-import { filterData, prepareGroupedBarData, getUniqueGeographies, getUniqueSegments } from '@/lib/data-processor'
+import { filterData, prepareGroupedBarData, prepareIntelligentMultiLevelData, getUniqueGeographies, getUniqueSegments } from '@/lib/data-processor'
 import { useDashboardStore } from '@/lib/store'
 import type { DataRecord } from '@/lib/types'
 
@@ -22,7 +22,7 @@ interface GroupedBarChartProps {
 }
 
 export function GroupedBarChart({ title, height = 400 }: GroupedBarChartProps) {
-  const { data, filters } = useDashboardStore()
+  const { data, filters, currency } = useDashboardStore()
   const [hoveredBar, setHoveredBar] = useState<string | null>(null)
 
   const chartData = useMemo(() => {
@@ -40,7 +40,23 @@ export function GroupedBarChart({ title, height = 400 }: GroupedBarChartProps) {
     })
 
     // Filter data
-    const filtered = filterData(dataset, filters)
+    let filtered = filterData(dataset, filters)
+
+    // If showLevel1Totals is enabled in geography mode, also include Level 1 aggregated records
+    if (filters.viewMode === 'geography-mode' && filters.showLevel1Totals) {
+      const level1Records = dataset.filter(record => 
+        record.aggregation_level === 1 &&
+        record.segment_type === filters.segmentType &&
+        (filters.geographies.length === 0 || filters.geographies.includes(record.geography))
+      )
+      
+      // Merge level 1 records with filtered data, avoiding duplicates
+      const existingKeys = new Set(filtered.map(r => `${r.geography}::${r.segment}::${r.segment_type}`))
+      const newLevel1Records = level1Records.filter(r => 
+        !existingKeys.has(`${r.geography}::${r.segment}::${r.segment_type}`)
+      )
+      filtered = [...filtered, ...newLevel1Records]
+    }
 
     console.log('📊 After filtering:', {
       filteredCount: filtered.length,
@@ -48,7 +64,11 @@ export function GroupedBarChart({ title, height = 400 }: GroupedBarChartProps) {
     })
 
     // Prepare chart data
-    const prepared = prepareGroupedBarData(filtered, filters)
+    // Use intelligent multi-level data when aggregationLevel is null (automatic mode)
+    // This allows displaying data from different levels together on one graph
+    const prepared = filters.aggregationLevel === null
+      ? prepareIntelligentMultiLevelData(filtered, filters)
+      : prepareGroupedBarData(filtered, filters)
 
     console.log('📊 Prepared chart data:', {
       preparedLength: prepared.length,
@@ -146,8 +166,15 @@ export function GroupedBarChart({ title, height = 400 }: GroupedBarChartProps) {
     )
   }
 
+  const selectedCurrency = currency || data.metadata.currency || 'USD'
+  const isINR = selectedCurrency === 'INR'
+  const currencySymbol = isINR ? '₹' : '$'
+  const unitLabel = isINR ? '' : (data.metadata.value_unit || 'Million')
+  
   const yAxisLabel = filters.dataType === 'value'
-    ? `Market Value (${data.metadata.currency} ${data.metadata.value_unit})`
+    ? isINR 
+      ? `Market Value (${currencySymbol})`
+      : `Market Value (${selectedCurrency} ${unitLabel})`
     : `Market Volume (${data.metadata.volume_unit})`
 
   // Matrix view should use heatmap instead
@@ -172,8 +199,15 @@ export function GroupedBarChart({ title, height = 400 }: GroupedBarChartProps) {
     if (!active || !payload || !payload.length) return null
 
     const year = label
+    const selectedCurrency = currency || data.metadata.currency || 'USD'
+    const isINR = selectedCurrency === 'INR'
+    const currencySymbol = isINR ? '₹' : '$'
+    const unitText = isINR ? '' : (data.metadata.value_unit || 'Million')
+    
     const unit = filters.dataType === 'value'
-      ? `${data.metadata.currency} ${data.metadata.value_unit}`
+      ? isINR 
+        ? currencySymbol
+        : `${selectedCurrency} ${unitText}`
       : data.metadata.volume_unit
 
     if (chartData.isStacked) {
@@ -285,6 +319,20 @@ export function GroupedBarChart({ title, height = 400 }: GroupedBarChartProps) {
             </div>
           ))}
         </div>
+        {/* Add total for geography mode */}
+        {filters.viewMode === 'geography-mode' && payload.length > 0 && (
+          <div className="mt-3 pt-2 border-t border-gray-200">
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-sm font-semibold text-black">Total</span>
+              <span className="text-sm font-bold text-black">
+                {payload.reduce((sum: number, entry: any) => sum + (entry.value || 0), 0).toLocaleString(undefined, { 
+                  minimumFractionDigits: 2, 
+                  maximumFractionDigits: 2 
+                })} {unit}
+              </span>
+            </div>
+          </div>
+        )}
         <div className="mt-3 pt-2 border-t border-gray-200 text-xs text-black">
           {filters.viewMode === 'segment-mode' 
             ? 'Comparing segments across selected geographies'

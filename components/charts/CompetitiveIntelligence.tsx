@@ -18,9 +18,16 @@ export function CompetitiveIntelligence({ height = 600 }: CompetitiveIntelligenc
   } | null>(null)
 
   useEffect(() => {
+    const abortController = new AbortController()
+    let isMounted = true
+    
     async function loadInsights() {
+      if (!isMounted || abortController.signal.aborted) return
+      
       const data = await loadCompetitiveIntelligenceData()
-      if (data && data.companies.length > 0) {
+      
+      // Only update state if component is still mounted and not aborted
+      if (isMounted && !abortController.signal.aborted && data && data.companies.length > 0) {
         // Find market leader
         const sorted = [...data.companies].sort((a, b) => b.marketShare - a.marketShare)
         const leader = sorted[0]
@@ -38,7 +45,14 @@ export function CompetitiveIntelligence({ height = 600 }: CompetitiveIntelligenc
         })
       }
     }
+    
     loadInsights()
+    
+    // Cleanup function to prevent state updates after unmount
+    return () => {
+      isMounted = false
+      abortController.abort()
+    }
   }, [])
 
   return (

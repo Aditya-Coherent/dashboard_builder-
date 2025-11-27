@@ -68,6 +68,8 @@ function* extractPathsGenerator(
 /**
  * Generator function for extracting ALL paths from structure (even empty objects)
  * This is used for segmentation JSON which may have empty objects at leaf nodes
+ * IMPORTANT: After aggregations are calculated, parent nodes have year data AND children,
+ * so we must continue traversing even when year data is present
  */
 function* extractStructurePathsGenerator(
   obj: any,
@@ -80,18 +82,39 @@ function* extractStructurePathsGenerator(
 
   const keys = Object.keys(obj)
   
-  // Check if this is a leaf node (empty object or has year data)
+  // Check if this is a leaf node (empty object or has year data but no child objects)
   const hasYearData = keys.some(key => /^\d{4}$/.test(key) || key === 'CAGR')
   const isEmptyObject = keys.length === 0
   
-  // If it's a leaf node (has year data OR is empty), yield the path
-  if (hasYearData || isEmptyObject) {
+  // Check if there are any child objects (non-year, non-metadata keys that are objects)
+  const hasChildObjects = keys.some(key => {
+    if (/^\d{4}$/.test(key) || key === 'CAGR' || key === '_aggregated' || key === '_level') {
+      return false
+    }
+    const value = obj[key]
+    return value && typeof value === 'object' && !Array.isArray(value)
+  })
+  
+  // If it's a leaf node (has year data OR is empty) AND has no child objects, yield the path
+  if ((hasYearData || isEmptyObject) && !hasChildObjects) {
     yield { path: currentPath }
     return
   }
+  
+  // If it has year data but also has child objects, yield this path (it's an aggregation node)
+  // but continue traversing to get child paths
+  if (hasYearData && hasChildObjects) {
+    yield { path: currentPath }
+    // Don't return - continue to traverse children
+  }
 
-  // Continue traversing for non-leaf nodes
+  // Continue traversing for non-leaf nodes (or nodes with both year data and children)
   for (const key of keys) {
+    // Skip year keys and metadata keys - we've already processed them above
+    if (/^\d{4}$/.test(key) || key === 'CAGR' || key === '_aggregated' || key === '_level') {
+      continue
+    }
+    
     try {
       yield* extractStructurePathsGenerator(obj[key], [...currentPath, key], depth + 1)
     } catch (error) {
@@ -133,15 +156,31 @@ async function extractYearsAsync(data: RawJsonData): Promise<number[]> {
     if (depth > 15 || !obj || typeof obj !== 'object') return
     
     const keys = Object.keys(obj)
+    
+    // Check if this object has year keys directly (leaf node)
+    const hasYearKeys = keys.some(key => /^\d{4}$/.test(key))
+    if (hasYearKeys) {
+      // This is a leaf node with year data - extract all year keys
+      keys.forEach(key => {
+        if (/^\d{4}$/.test(key)) {
+          const year = parseInt(key, 10)
+          if (year >= 1900 && year <= 2100) {
+            years.add(year)
+          }
+        }
+      })
+    }
+    
+    // Continue traversing child objects
     for (let i = 0; i < keys.length; i++) {
       const key = keys[i]
       
-      if (/^\d{4}$/.test(key)) {
-        const year = parseInt(key, 10)
-        if (year >= 1900 && year <= 2100) {
-          years.add(year)
-        }
-      } else if (typeof obj[key] === 'object' && obj[key] !== null) {
+      // Skip year keys and metadata - we've already processed them
+      if (/^\d{4}$/.test(key) || key === 'CAGR' || key === '_aggregated' || key === '_level') {
+        continue
+      }
+      
+      if (typeof obj[key] === 'object' && obj[key] !== null) {
         await traverse(obj[key], depth + 1)
       }
       
@@ -153,7 +192,10 @@ async function extractYearsAsync(data: RawJsonData): Promise<number[]> {
   }
   
   try {
+    console.log('Extracting years from data structure...')
     const geographies = Object.values(data)
+    console.log(`Found ${geographies.length} geographies to traverse`)
+    
     for (const geography of geographies) {
       if (geography && typeof geography === 'object') {
         const segmentTypes = Object.values(geography)
@@ -164,6 +206,8 @@ async function extractYearsAsync(data: RawJsonData): Promise<number[]> {
         }
       }
     }
+    
+    console.log(`Extracted ${years.size} unique years:`, Array.from(years).sort((a, b) => a - b))
   } catch (error) {
     console.error('Error extracting years:', error)
     throw new Error(`Failed to extract years: ${error instanceof Error ? error.message : String(error)}`)
@@ -171,7 +215,9 @@ async function extractYearsAsync(data: RawJsonData): Promise<number[]> {
   
   const yearArray = Array.from(years).sort((a, b) => a - b)
   if (yearArray.length === 0) {
-    throw new Error('No valid years found in data')
+    // Log the data structure to help debug
+    console.error('No years found. Sample data structure:', JSON.stringify(data, null, 2).substring(0, 1000))
+    throw new Error('No valid years found in data. Please ensure your file has year columns (e.g., 2018, 2019, 2020) with data.')
   }
   
   return yearArray
@@ -199,6 +245,7 @@ function buildSegmentHierarchy(
     level_2: segmentParts[1] || '',
     level_3: segmentParts[2] || '',
     level_4: segmentParts[3] || '',
+    level_5: segmentParts[4] || '',
   }
 }
 
@@ -223,6 +270,231 @@ function getSegmentLevel(
 }
 
 /**
+ * Create a path index for fast child lookups
+ * Maps parent path strings to arrays of child paths
+ */
+function createPathIndex(allPaths: Array<{ path: string[] }>): Map<string, Array<{ path: string[] }>> {
+  const index = new Map<string, Array<{ path: string[] }>>()
+  
+  if (!allPaths || allPaths.length === 0) {
+    return index
+  }
+  
+  // Group paths by their parent path
+  for (const pathObj of allPaths) {
+    const path = pathObj.path
+    if (path.length === 0) continue
+    
+    // For each path, add it to its parent's children list
+    // Parent is path.slice(0, -1)
+    if (path.length > 1) {
+      const parentPath = path.slice(0, -1)
+      const parentKey = parentPath.join('|')
+      
+      if (!index.has(parentKey)) {
+        index.set(parentKey, [])
+      }
+      index.get(parentKey)!.push({ path })
+    }
+  }
+  
+  return index
+}
+
+/**
+ * Get ALL children paths for a given parent path
+ * This is more comprehensive than just checking if children exist
+ * Returns direct children only (path.length === parentPath.length + 1)
+ * OPTIMIZED: Uses path index for O(1) lookup instead of O(n) filter
+ */
+function getAllChildrenPaths(
+  parentPath: string[],
+  allPaths: Array<{ path: string[] }>,
+  pathIndex?: Map<string, Array<{ path: string[] }>>,
+  structureData?: RawJsonData,
+  valueData?: RawJsonData | null,
+  volumeData?: RawJsonData | null
+): Array<{ path: string[] }> {
+  const children: Array<{ path: string[] }> = []
+  
+  // Strategy 1: Use path index (fastest - O(1) lookup)
+  if (pathIndex) {
+    const parentKey = parentPath.join('|')
+    const indexedChildren = pathIndex.get(parentKey)
+    if (indexedChildren && indexedChildren.length > 0) {
+      return indexedChildren
+    }
+  }
+  
+  // Strategy 2: Use allPaths with optimized filter (fallback if no index)
+  if (allPaths && allPaths.length > 0) {
+    const parentKey = parentPath.join('|')
+    const parentLength = parentPath.length
+    
+    // Only check paths that could be children (length check first for early exit)
+    for (const otherPath of allPaths) {
+      const otherPathArray = otherPath.path
+      // Quick length check first
+      if (otherPathArray.length !== parentLength + 1) {
+        continue
+      }
+      
+      // Check prefix match
+      let isChild = true
+      for (let i = 0; i < parentLength; i++) {
+        if (otherPathArray[i] !== parentPath[i]) {
+          isChild = false
+          break
+        }
+      }
+      
+      if (isChild) {
+        children.push({ path: otherPathArray })
+      }
+    }
+    
+    if (children.length > 0) {
+      return children
+    }
+  }
+  
+  // Strategy 2: Navigate through data structures (fallback)
+  if (parentPath.length < 2) {
+    return []
+  }
+  
+  const geography = parentPath[0]
+  const segmentType = parentPath[1]
+  const segmentPath = parentPath.slice(2)
+  
+  // Try structure data first
+  let current: any = null
+  let found = false
+  
+  const dataSources = [
+    { data: structureData, name: 'structure' },
+    { data: valueData, name: 'value' },
+    { data: volumeData, name: 'volume' }
+  ]
+  
+  for (const source of dataSources) {
+    if (!source.data || found) continue
+    
+    if (source.data[geography]?.[segmentType]) {
+      current = source.data[geography][segmentType]
+      found = true
+      
+      // Navigate through segment path
+      for (const segmentKey of segmentPath) {
+        if (current && typeof current === 'object' && current[segmentKey] !== undefined) {
+          current = current[segmentKey]
+        } else {
+          found = false
+          break
+        }
+      }
+      
+      if (found) break
+    }
+  }
+  
+  if (!found || !current || typeof current !== 'object') {
+    return []
+  }
+  
+  // Extract direct children from current node
+  const keys = Object.keys(current)
+  for (const key of keys) {
+    // Skip year keys, CAGR, and metadata keys
+    if (/^\d{4}$/.test(key) || key === 'CAGR' || key === '_aggregated' || key === '_level') {
+      continue
+    }
+    
+    const value = current[key]
+    // Check if it's a non-null object (not array, not null)
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      children.push({ path: [...parentPath, key] })
+    }
+  }
+  
+  return children
+}
+
+/**
+ * Recursively get ALL descendant paths (children, grandchildren, etc.)
+ */
+function getAllDescendantPaths(
+  parentPath: string[],
+  allPaths: Array<{ path: string[] }>
+): Array<{ path: string[] }> {
+  const descendants: Array<{ path: string[] }> = []
+  
+  if (!allPaths || allPaths.length === 0) {
+    return descendants
+  }
+  
+  // Find all paths that start with parentPath
+  for (const otherPath of allPaths) {
+    // Check if otherPath is a descendant of parentPath
+    if (otherPath.path.length <= parentPath.length) {
+      continue
+    }
+    
+    // Check if otherPath starts with parentPath (exact prefix match)
+    let isDescendant = true
+    for (let i = 0; i < parentPath.length; i++) {
+      if (otherPath.path[i] !== parentPath[i]) {
+        isDescendant = false
+        break
+      }
+    }
+    
+    if (isDescendant) {
+      descendants.push({ path: otherPath.path })
+    }
+  }
+  
+  return descendants
+}
+
+/**
+ * Check if a path has children in the structure or value data, or in the list of all paths
+ * Used to infer aggregation level when _level is missing
+ * Enhanced version that uses getAllChildrenPaths for more reliable detection
+ */
+function checkIfPathHasChildren(
+  structureData: RawJsonData,
+  pathArray: string[],
+  valueData?: RawJsonData | null,
+  volumeData?: RawJsonData | null,
+  allPaths?: Array<{ path: string[] }>,
+  pathIndex?: Map<string, Array<{ path: string[] }>>
+): boolean {
+  try {
+    // Use getAllChildrenPaths to get actual children (more reliable)
+    const children = getAllChildrenPaths(
+      pathArray,
+      allPaths || [],
+      pathIndex,
+      structureData,
+      valueData,
+      volumeData
+    )
+    
+    return children.length > 0
+  } catch (error) {
+    console.warn('Error checking if path has children:', error, {
+      pathArray,
+      hasStructureData: !!structureData,
+      hasValueData: !!valueData,
+      hasVolumeData: !!volumeData,
+      allPathsCount: allPaths?.length || 0
+    })
+    return false
+  }
+}
+
+/**
  * Process segment type asynchronously
  */
 async function processSegmentTypeAsync(
@@ -241,6 +513,7 @@ async function processSegmentTypeAsync(
   
   // Extract paths directly from valueData to capture ALL data nodes including aggregations
   // This ensures we get aggregations that might not be in structure data
+  // Also extract from volumeData if available to get complete path coverage
   if (valueData) {
     for (let i = 0; i < geographies.length; i++) {
       const geography = geographies[i]
@@ -257,7 +530,48 @@ async function processSegmentTypeAsync(
         let count = 0
         for (const pathObj of valueDataGenerator) {
           if (pathObj.data) {
-            allPaths.push(pathObj)
+            // Check if path already exists (might be added from volumeData)
+            const existingIndex = allPaths.findIndex(p => 
+              p.path.length === pathObj.path.length &&
+              p.path.every((val, idx) => val === pathObj.path[idx])
+            )
+            if (existingIndex === -1) {
+              allPaths.push(pathObj)
+            } else {
+              // Merge data if path exists (in case volumeData added it first)
+              // Prefer valueData metadata (_aggregated, _level) if present
+              if (pathObj.data._aggregated !== undefined || pathObj.data._level !== undefined) {
+                allPaths[existingIndex] = pathObj
+              }
+            }
+            count++
+            if (count % 1000 === 0) {
+              await new Promise(resolve => setImmediate(resolve))
+            }
+          }
+        }
+      }
+      
+      // Also extract from volumeData if available to ensure complete path coverage
+      // This helps with child detection when both files are uploaded
+      if (volumeData && volumeData[geography]?.[segmentType]) {
+        const volumeDataGenerator = extractPathsGenerator(
+          volumeData[geography][segmentType],
+          [geography, segmentType]
+        )
+        
+        let count = 0
+        for (const pathObj of volumeDataGenerator) {
+          if (pathObj.data) {
+            // Check if path already exists (from valueData)
+            const existingIndex = allPaths.findIndex(p => 
+              p.path.length === pathObj.path.length &&
+              p.path.every((val, idx) => val === pathObj.path[idx])
+            )
+            if (existingIndex === -1) {
+              // Only add if not already present (valueData takes precedence)
+              allPaths.push(pathObj)
+            }
             count++
             if (count % 1000 === 0) {
               await new Promise(resolve => setImmediate(resolve))
@@ -348,6 +662,7 @@ async function processSegmentTypeAsync(
   
   // Build segment hierarchy and records
   // IMPORTANT: Extract segments from structure FIRST (even without data) to populate filter options
+  // Also extract from valueData/volumeData if structure doesn't have segments
   const segmentItems: string[] = []
   const hierarchy: Record<string, string[]> = {}
   const b2bHierarchy: Record<string, string[]> = {}
@@ -356,72 +671,128 @@ async function processSegmentTypeAsync(
   const b2cItems: string[] = []
   const records: DataRecord[] = []
   
-  // First pass: Extract ALL segments from structure (segmentation JSON) to build complete segment list
-  // This ensures segments are available in filters even if they don't have matching data in value/volume files
-  // Use extractStructurePathsGenerator which handles empty objects at leaf nodes
-  for (let geoIdx = 0; geoIdx < geographies.length; geoIdx++) {
-    const geography = geographies[geoIdx]
-    if (structureData[geography]?.[segmentType]) {
-      // Use structure generator that handles empty objects
-      const structureGenerator = extractStructurePathsGenerator(
-        structureData[geography][segmentType],
-        [geography, segmentType]
-      )
-      // Collect structure paths (no data, just paths)
-      const structurePaths: Array<{ path: string[] }> = []
-      let count = 0
-      for (const pathObj of structureGenerator) {
-        structurePaths.push(pathObj)
-        count++
-        if (count % 1000 === 0) {
-          await new Promise(resolve => setImmediate(resolve))
+  // Helper function to extract segments from a data source
+  const extractSegmentsFromSource = async (sourceData: RawJsonData, sourceName: string) => {
+    for (let geoIdx = 0; geoIdx < geographies.length; geoIdx++) {
+      const geography = geographies[geoIdx]
+      if (sourceData[geography]?.[segmentType]) {
+        // Use structure generator that handles empty objects and nodes with year data
+        const structureGenerator = extractStructurePathsGenerator(
+          sourceData[geography][segmentType],
+          [geography, segmentType]
+        )
+        // Collect structure paths (no data, just paths)
+        const structurePaths: Array<{ path: string[] }> = []
+        let count = 0
+        for (const pathObj of structureGenerator) {
+          structurePaths.push(pathObj)
+          count++
+          if (count % 1000 === 0) {
+            await new Promise(resolve => setImmediate(resolve))
+          }
         }
-      }
-      
-      // Build segment items and hierarchy from structure (not just paths with data)
-      structurePaths.forEach(({ path: pathArray }) => {
-        const segmentPath = pathArray.slice(segmentTypeIndex + 1)
         
-        // Build hierarchy from structure
-        segmentPath.forEach((seg, index) => {
-          if (index === 0) {
-            segmentItems.push(seg) // Add all segments from structure
-            if (!hierarchy[seg]) hierarchy[seg] = []
-          } else {
-            const parent = segmentPath[index - 1]
-            if (!hierarchy[parent]) hierarchy[parent] = []
-            hierarchy[parent].push(seg)
+        // Build segment items and hierarchy from structure (not just paths with data)
+        structurePaths.forEach(({ path: pathArray }) => {
+          const segmentPath = pathArray.slice(segmentTypeIndex + 1)
+          
+          // Build hierarchy from structure
+          segmentPath.forEach((seg, index) => {
+            if (seg && seg.trim() !== '') { // Only add non-empty segments
+              if (index === 0) {
+                if (!segmentItems.includes(seg)) {
+                  segmentItems.push(seg) // Add all segments from structure
+                }
+                if (!hierarchy[seg]) hierarchy[seg] = []
+              } else {
+                const parent = segmentPath[index - 1]
+                if (parent && parent.trim() !== '') {
+                  if (!hierarchy[parent]) hierarchy[parent] = []
+                  if (!hierarchy[parent].includes(seg)) {
+                    hierarchy[parent].push(seg)
+                  }
+                }
+              }
+            }
+          })
+          
+          // Check for B2B/B2C
+          const level1 = segmentPath[0] || ''
+          if (level1 === 'B2B' || level1 === 'B2C') {
+            const segment = segmentPath[segmentPath.length - 1] || ''
+            if (segment && segment.trim() !== '') {
+              if (level1 === 'B2B') {
+                const parentKey = segmentPath[1] || ''
+                if (parentKey && !b2bHierarchy[parentKey]) {
+                  b2bHierarchy[parentKey] = []
+                }
+                if (!b2bItems.includes(segment)) {
+                  b2bItems.push(segment)
+                }
+              } else {
+                const parentKey = segmentPath[1] || ''
+                if (parentKey && !b2cHierarchy[parentKey]) {
+                  b2cHierarchy[parentKey] = []
+                }
+                if (!b2cItems.includes(segment)) {
+                  b2cItems.push(segment)
+                }
+              }
+            }
           }
         })
         
-        // Check for B2B/B2C
-        const level1 = segmentPath[0] || ''
-        if (level1 === 'B2B' || level1 === 'B2C') {
-          const segment = segmentPath[segmentPath.length - 1] || ''
-          if (level1 === 'B2B') {
-            if (!b2bHierarchy[segmentPath[1] || '']) {
-              b2bHierarchy[segmentPath[1] || ''] = []
-            }
-            b2bItems.push(segment)
-          } else {
-            if (!b2cHierarchy[segmentPath[1] || '']) {
-              b2cHierarchy[segmentPath[1] || ''] = []
-            }
-            b2cItems.push(segment)
-          }
+        console.log(`Extracted ${structurePaths.length} structure paths from ${sourceName} for ${geography} > ${segmentType}`)
+        if (structurePaths.length > 0) {
+          console.log(`Sample structure paths:`, structurePaths.slice(0, 3).map(p => p.path.join(' > ')))
         }
-      })
-      
-      console.log(`Extracted ${structurePaths.length} structure paths for ${geography} > ${segmentType}`)
-      if (structurePaths.length > 0) {
-        console.log(`Sample structure paths:`, structurePaths.slice(0, 3).map(p => p.path.join(' > ')))
       }
     }
+  }
+  
+  // First pass: Extract ALL segments from structure (segmentation JSON) to build complete segment list
+  // This ensures segments are available in filters even if they don't have matching data in value/volume files
+  if (structureData) {
+    await extractSegmentsFromSource(structureData, 'structureData')
+  }
+  
+  // If no segments found in structure, try extracting from valueData
+  if (segmentItems.length === 0 && valueData) {
+    console.log('No segments found in structureData, trying valueData...')
+    await extractSegmentsFromSource(valueData, 'valueData')
+  }
+  
+  // If still no segments, try volumeData
+  if (segmentItems.length === 0 && volumeData) {
+    console.log('No segments found in valueData, trying volumeData...')
+    await extractSegmentsFromSource(volumeData, 'volumeData')
+  }
+  
+  // Also extract segments from allPaths if we have them (from valueData/volumeData extraction)
+  if (segmentItems.length === 0 && allPaths.length > 0) {
+    console.log('Extracting segments from allPaths...')
+    const segmentSet = new Set<string>()
+    allPaths.forEach(({ path: pathArray }) => {
+      const segmentPath = pathArray.slice(segmentTypeIndex + 1)
+      segmentPath.forEach(seg => {
+        if (seg && seg.trim() !== '') {
+          segmentSet.add(seg)
+        }
+      })
+    })
+    segmentItems.push(...Array.from(segmentSet))
+    console.log(`Extracted ${segmentItems.length} segments from allPaths`)
   }
   
   console.log(`Total segment items extracted: ${segmentItems.length}`)
   console.log(`Sample segment items:`, segmentItems.slice(0, 10))
   console.log(`Hierarchy keys count: ${Object.keys(hierarchy).length}`, Object.keys(hierarchy).slice(0, 10))
+  
+  // Create path index for fast child lookups (performance optimization)
+  // This converts O(n*m) complexity to O(n) for child detection
+  console.log('Creating path index for fast child lookups...')
+  const pathIndex = createPathIndex(allPaths.map(p => ({ path: p.path })))
+  console.log(`Path index created with ${pathIndex.size} parent entries`)
   
   // Second pass: Process paths with data to create records
   const batchSize = 1000
@@ -435,8 +806,114 @@ async function processSegmentTypeAsync(
       const segmentPath = pathArray.slice(segmentTypeIndex + 1)
       
       // Extract aggregation metadata from JSON first
-      const isAggregated = data._aggregated === true
-      const aggregationLevel = data._level !== undefined && data._level !== null ? Number(data._level) : null
+      // Handle both boolean and string representations of _aggregated
+      const hasAggregatedFlag = data._aggregated === true || data._aggregated === 'true'
+      let isAggregated = hasAggregatedFlag
+      // Handle _level as number or string, and ensure 0 is treated as valid
+      let aggregationLevel: number | null = null
+      if (data._level !== undefined && data._level !== null && data._level !== '') {
+        const levelNum = typeof data._level === 'string' ? parseInt(data._level, 10) : Number(data._level)
+        if (!isNaN(levelNum)) {
+          aggregationLevel = levelNum
+        }
+      }
+      
+      // If _aggregated flag is explicitly set, prioritize it
+      // This ensures that pre-calculated aggregations are always recognized
+      
+      // If _level is missing but _aggregated is true, we need to infer the level
+      // Also infer if _level is missing (common when uploading via dashboard builder)
+      if (aggregationLevel === null || (isAggregated && aggregationLevel === null)) {
+        // Check if this path has children in the structure, value data, or other paths to determine if it's aggregated
+        // Pass allPaths and pathIndex for optimized lookup
+        const hasChildren = checkIfPathHasChildren(structureData, pathArray, valueData, volumeData, allPaths, pathIndex)
+        
+        // Debug logging for child detection
+        if (process.env.NODE_ENV === 'development' && !hasChildren && hasAggregatedFlag) {
+          console.log(`🔍 Child detection for aggregated path [${pathArray.join(' > ')}]:`, {
+            hasChildren,
+            allPathsCount: allPaths?.length || 0,
+            pathArrayLength: pathArray.length,
+            hasStructureData: !!structureData,
+            hasValueData: !!valueData
+          })
+        }
+        
+        // Calculate level based on segment path depth
+        // Level 1 = no segments (segmentPath.length = 0) - total aggregation
+        // Level 2 = 1 segment (segmentPath.length = 1) - first segment level
+        // Level 3 = 2 segments (segmentPath.length = 2) - second segment level
+        // etc.
+        const calculatedLevel = segmentPath.length + 1
+        
+        // IMPORTANT: When both value and volume are uploaded, allPaths should contain all paths
+        // But if allPaths check fails, also check volumeData if available
+        let hasChildrenFinal = hasChildren
+        
+        // If _aggregated flag is explicitly true, trust it even if hasChildren check fails
+        // This handles cases where aggregations were calculated but structure check is incomplete
+        if (isAggregated && !hasChildren && pathIndex) {
+          // Double-check using path index (fast O(1) lookup)
+          const parentKey = pathArray.join('|')
+          const indexedChildren = pathIndex.get(parentKey)
+          if (indexedChildren && indexedChildren.length > 0) {
+            hasChildrenFinal = true
+          } else if (isAggregated) {
+            // If _aggregated is true but we can't find children, still trust the flag
+            // This can happen when aggregations were pre-calculated
+            hasChildrenFinal = true
+          }
+        } else if (!hasChildren && pathIndex) {
+          // Double-check using path index (fast O(1) lookup)
+          const parentKey = pathArray.join('|')
+          const indexedChildren = pathIndex.get(parentKey)
+          if (indexedChildren && indexedChildren.length > 0) {
+            hasChildrenFinal = true
+          }
+        }
+        
+        if (hasChildrenFinal || hasAggregatedFlag) {
+          // This path has children OR is marked as aggregated, so it's an aggregated record
+          aggregationLevel = calculatedLevel
+          isAggregated = true
+        } else {
+          // This is a leaf record (no children)
+          // For leaf records, set aggregation_level to their depth so they can be filtered correctly
+          // This allows leaf records to be included when filtering by their level
+          aggregationLevel = calculatedLevel
+          isAggregated = false
+        }
+        
+        // Debug logging for uploaded data
+        if (process.env.NODE_ENV === 'development') {
+          console.log(`📊 Inferred aggregation level for path [${pathArray.join(' > ')}]:`, {
+            segmentPath: segmentPath,
+            segmentPathLength: segmentPath.length,
+            calculatedLevel,
+            hasChildren,
+            hasChildrenFinal,
+            isAggregated,
+            aggregationLevel,
+            allPathsCount: allPaths?.length || 0,
+            dataHasAggregatedFlag: data._aggregated,
+            dataHasLevelFlag: data._level
+          })
+        }
+      } else if (hasAggregatedFlag && aggregationLevel === null) {
+        // If _aggregated is true but _level is still null after inference, use calculated level
+        // This ensures aggregated nodes always have a level set
+        aggregationLevel = segmentPath.length + 1
+        isAggregated = true
+        console.warn(`⚠️ Aggregated node at path [${pathArray.join(' > ')}] had _aggregated=true but no _level. Using calculated level ${aggregationLevel}`)
+      }
+      
+      // Final safeguard: if _aggregated flag is set, always respect it
+      if (hasAggregatedFlag) {
+        isAggregated = true
+        if (aggregationLevel === null) {
+          aggregationLevel = segmentPath.length + 1
+        }
+      }
       
       // Determine segment name based on aggregation level
       // JSON structure:

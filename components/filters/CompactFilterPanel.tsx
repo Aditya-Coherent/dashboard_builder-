@@ -260,6 +260,7 @@ export function CompactFilterPanel() {
         </p>
       </div>
 
+
       {/* Geography Selection */}
       <div>
         <label className="text-xs font-medium text-black">Geography Selection</label>

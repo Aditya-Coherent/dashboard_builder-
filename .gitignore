@@ -64,3 +64,8 @@ backups/
 # But keep the ones in public/data
 !public/data/*.json
 
+# Temporary files and logs
+temp/
+server.log
+*.log
+

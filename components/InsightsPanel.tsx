@@ -7,7 +7,7 @@ import { filterData } from '@/lib/data-processor'
 import { generateInsights, findCrossovers, type Insight } from '@/lib/insights-generator'
 
 export function InsightsPanel() {
-  const { data, filters } = useDashboardStore()
+  const { data, filters, currency } = useDashboardStore()
 
   const insights = useMemo(() => {
     if (!data) return []
@@ -19,7 +19,7 @@ export function InsightsPanel() {
     const filtered = filterData(dataset, filters)
     
     // Generate main insights
-    const mainInsights = generateInsights(filtered, filters)
+    const mainInsights = generateInsights(filtered, filters, currency || 'USD')
     
     // Find crossover points
     const crossovers = findCrossovers(filtered, filters)

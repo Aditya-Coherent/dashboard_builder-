@@ -12,7 +12,7 @@ import {
   ResponsiveContainer
 } from 'recharts'
 import { CHART_THEME, getChartColor } from '@/lib/chart-theme'
-import { filterData, prepareLineChartData, getUniqueGeographies, getUniqueSegments } from '@/lib/data-processor'
+import { filterData, prepareLineChartData, prepareIntelligentMultiLevelData, getUniqueGeographies, getUniqueSegments } from '@/lib/data-processor'
 import { useDashboardStore } from '@/lib/store'
 
 interface MultiLineChartProps {
@@ -21,7 +21,7 @@ interface MultiLineChartProps {
 }
 
 export function MultiLineChart({ title, height = 400 }: MultiLineChartProps) {
-  const { data, filters } = useDashboardStore()
+  const { data, filters, currency } = useDashboardStore()
 
   const chartData = useMemo(() => {
     if (!data) return { data: [], series: [] }
@@ -31,7 +31,11 @@ export function MultiLineChart({ title, height = 400 }: MultiLineChartProps) {
       : data.data.volume.geography_segment_matrix
 
     const filtered = filterData(dataset, filters)
-    const prepared = prepareLineChartData(filtered, filters)
+    // Use intelligent multi-level data when aggregationLevel is null (automatic mode)
+    // This allows displaying data from different levels together on one graph
+    const prepared = filters.aggregationLevel === null
+      ? prepareIntelligentMultiLevelData(filtered, filters)
+      : prepareLineChartData(filtered, filters)
 
     // Determine series based on view mode and selections
     let series: string[] = []
@@ -79,8 +83,15 @@ export function MultiLineChart({ title, height = 400 }: MultiLineChartProps) {
     )
   }
 
+  const selectedCurrency = currency || data.metadata.currency || 'USD'
+  const isINR = selectedCurrency === 'INR'
+  const currencySymbol = isINR ? '₹' : '$'
+  const unitLabel = isINR ? '' : (data.metadata.value_unit || 'Million')
+  
   const yAxisLabel = filters.dataType === 'value'
-    ? `Market Value (${data.metadata.currency} ${data.metadata.value_unit})`
+    ? isINR 
+      ? `Market Value (${currencySymbol})`
+      : `Market Value (${selectedCurrency} ${unitLabel})`
     : `Market Volume (${data.metadata.volume_unit})`
 
   // Matrix view should use heatmap instead
@@ -122,8 +133,15 @@ export function MultiLineChart({ title, height = 400 }: MultiLineChartProps) {
             content={({ active, payload, label }) => {
               if (active && payload && payload.length) {
                 const year = label
+                const selectedCurrency = currency || data.metadata.currency || 'USD'
+                const isINR = selectedCurrency === 'INR'
+                const currencySymbol = isINR ? '₹' : '$'
+                const unitText = isINR ? '' : (data.metadata.value_unit || 'Million')
+                
                 const unit = filters.dataType === 'value'
-                  ? `${data.metadata.currency} ${data.metadata.value_unit}`
+                  ? isINR 
+                    ? currencySymbol
+                    : `${selectedCurrency} ${unitText}`
                   : data.metadata.volume_unit
                 
                 return (

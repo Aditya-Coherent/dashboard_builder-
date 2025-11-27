@@ -13,7 +13,16 @@ const iconMap = {
 }
 
 export function ChartGroupSelector() {
-  const { selectedChartGroup, setSelectedChartGroup } = useDashboardStore()
+  const { 
+    selectedChartGroup, 
+    setSelectedChartGroup,
+    rawIntelligenceData,
+    customerIntelligenceData,
+    distributorIntelligenceData
+  } = useDashboardStore()
+  
+  // Check if intelligence data exists
+  const hasIntelligenceData = !!(rawIntelligenceData || customerIntelligenceData || distributorIntelligenceData)
 
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-3">
@@ -21,6 +30,11 @@ export function ChartGroupSelector() {
       
       <div className="space-y-1">
         {CHART_GROUPS.map((group) => {
+          // Hide customer-intelligence group if no data exists
+          if (group.id === 'customer-intelligence' && !hasIntelligenceData) {
+            return null
+          }
+          
           const Icon = iconMap[group.id]
           const isSelected = selectedChartGroup === group.id
           

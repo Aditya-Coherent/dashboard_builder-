@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import path from "path";
 
 const nextConfig: NextConfig = {
   /* config options here */
@@ -12,6 +13,18 @@ const nextConfig: NextConfig = {
   output: 'standalone',
   // Increase memory limit for large JSON processing
   serverExternalPackages: ['fs', 'path'],
+  // Configure webpack to resolve modules from parent directory
+  webpack: (config, { isServer }) => {
+    if (!config.resolve) {
+      config.resolve = {};
+    }
+    if (!config.resolve.alias) {
+      config.resolve.alias = {};
+    }
+    // Add alias for excel-upload-tool
+    config.resolve.alias['@excel-upload-tool'] = path.resolve(__dirname, './excel-upload-tool');
+    return config;
+  },
 };
 
 export default nextConfig;

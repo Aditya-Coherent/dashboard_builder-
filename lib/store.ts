@@ -14,9 +14,22 @@ interface DashboardStore {
   defaultFiltersLoaded: boolean // Track if default filters are loaded
   opportunityFiltersLoaded: boolean // Track if opportunity filters are loaded
   geographyFiltersBySegmentType: Record<string, string[]> // Store geography filters per segment type
+  fromDashboardBuilder: boolean // Track if data came from dashboard builder
+  dashboardBuilderFiles: { valueFile: File | null; volumeFile: File | null; projectName: string } | null
+  intelligenceType: 'customer' | 'distributor' | null // Track which intelligence type is selected
+  customerIntelligenceData: any[] | null // Store customer intelligence data
+  distributorIntelligenceData: any[] | null // Store distributor intelligence data
+  parentHeaders: { prop1: string; prop2: string; prop3: string } | null // Store parent headers for propositions
+  rawIntelligenceData: { headers: string[]; rows: Record<string, any>[] } | null // Store raw Excel data as-is
+  proposition2Data: { headers: string[]; rows: Record<string, any>[] } | null // Store Proposition 2 data
+  proposition3Data: { headers: string[]; rows: Record<string, any>[] } | null // Store Proposition 3 data
+  competitiveIntelligenceData: { headers: string[]; rows: Record<string, any>[] } | null // Store competitive intelligence CSV data
+  dashboardName: string | null // Custom dashboard name
+  currency: 'USD' | 'INR' // Currency preference
   
   // Actions
   setData: (data: ComparisonData) => void
+  clearData: () => void // Clear all data and reset store for new market data
   updateFilters: (filters: Partial<FilterState>) => void
   updateOpportunityFilters: (filters: Partial<FilterState>) => void
   setLoading: (loading: boolean) => void
@@ -28,6 +41,18 @@ interface DashboardStore {
   loadDefaultOpportunityFilters: () => void // Load default opportunity filters
   saveGeographyFiltersForSegmentType: (segmentType: string, geographies: string[]) => void
   getGeographyFiltersForSegmentType: (segmentType: string) => string[] | undefined
+  setDashboardBuilderContext: (files: { valueFile: File | null; volumeFile: File | null; projectName: string }) => void
+  clearDashboardBuilderContext: () => void
+  setIntelligenceType: (type: 'customer' | 'distributor' | null) => void
+  setCustomerIntelligenceData: (data: any[]) => void
+  setDistributorIntelligenceData: (data: any[]) => void
+  setParentHeaders: (headers: { prop1: string; prop2: string; prop3: string } | null) => void
+  setRawIntelligenceData: (data: { headers: string[]; rows: Record<string, any>[] } | null) => void
+  setProposition2Data: (data: { headers: string[]; rows: Record<string, any>[] } | null) => void
+  setProposition3Data: (data: { headers: string[]; rows: Record<string, any>[] } | null) => void
+  setCompetitiveIntelligenceData: (data: { headers: string[]; rows: Record<string, any>[] } | null) => void
+  setDashboardName: (name: string | null) => void
+  setCurrency: (currency: 'USD' | 'INR') => void
 }
 
 // Helper function to check if data has B2B/B2C segmentation
@@ -45,16 +70,17 @@ export function hasB2BSegmentation(data: ComparisonData | null, segmentType: str
 // Helper function to get default filters based on data
 function getDefaultFilters(data: ComparisonData | null): FilterState {
   if (!data) {
-    return {
-      geographies: [],
-      segments: [],
-      segmentType: '',
-      yearRange: [2020, 2024],
-      dataType: 'value',
-      viewMode: 'segment-mode',
-      businessType: undefined,
-      aggregationLevel: null,
-    }
+  return {
+    geographies: [],
+    segments: [],
+    segmentType: '',
+    yearRange: [2020, 2024],
+    dataType: 'value',
+    viewMode: 'segment-mode',
+    businessType: undefined,
+    aggregationLevel: null,
+    showLevel1Totals: false,
+  }
   }
 
   const firstSegmentType = Object.keys(data.dimensions.segments)[0] || ''
@@ -83,7 +109,8 @@ function getDefaultFilters(data: ComparisonData | null): FilterState {
     dataType: 'value',
     viewMode: 'segment-mode',
     businessType: defaultBusinessType,
-    aggregationLevel: null, // Show all levels by default
+    aggregationLevel: null, // Automatic - determined by selected segments
+    showLevel1Totals: false,
   }
 }
 
@@ -100,6 +127,7 @@ function getDefaultOpportunityFilters(data: ComparisonData | null): FilterState 
       viewMode: 'segment-mode',
       businessType: undefined,
       aggregationLevel: null, // Show all levels to see opportunities at different aggregation levels
+      showLevel1Totals: false,
     }
   }
 
@@ -110,9 +138,10 @@ function getDefaultOpportunityFilters(data: ComparisonData | null): FilterState 
   // For opportunity matrix, default to first geography (usually India or global)
   const firstGeography = data.dimensions.geographies.all_geographies?.[0] || ''
   
-  // Get all segments from the first segment type (to see all opportunities)
-  const segmentDimension = data.dimensions.segments[firstSegmentType]
-  const allSegments = segmentDimension?.items || []
+  // For opportunity matrix, don't pre-select segments - let user select them
+  // This avoids issues where segments don't match the actual data structure
+  // Empty segments array means "show all segments"
+  const segments: string[] = []
   
   // Set default business type only if B2B/B2C exists
   let defaultBusinessType: 'B2B' | 'B2C' | undefined = undefined
@@ -122,13 +151,14 @@ function getDefaultOpportunityFilters(data: ComparisonData | null): FilterState 
 
   return {
     geographies: firstGeography ? [firstGeography] : [],
-    segments: allSegments, // Show all segments by default for opportunity analysis
+    segments: segments, // Empty = show all segments (don't pre-filter)
     segmentType: firstSegmentType,
     yearRange: [baseYear, forecastYear], // Full forecast range for CAGR calculation
     dataType: 'value',
     viewMode: 'segment-mode',
     businessType: defaultBusinessType,
-    aggregationLevel: null, // Show all aggregation levels
+    aggregationLevel: null, // Automatic - determined by selected segments
+    showLevel1Totals: false,
   }
 }
 
@@ -143,17 +173,57 @@ export const useDashboardStore = create<DashboardStore>((set, get) => ({
   defaultFiltersLoaded: false,
   opportunityFiltersLoaded: false,
   geographyFiltersBySegmentType: {},
+  fromDashboardBuilder: false,
+  dashboardBuilderFiles: null,
+  intelligenceType: null,
+  customerIntelligenceData: null,
+  distributorIntelligenceData: null,
+  parentHeaders: null,
+  rawIntelligenceData: null,
+  proposition2Data: null,
+  proposition3Data: null,
+  competitiveIntelligenceData: null,
+  dashboardName: null,
+  currency: 'USD',
   
   setData: (data) => {
     const defaultFilters = getDefaultFilters(data)
     const defaultOpportunityFilters = getDefaultOpportunityFilters(data)
+    
+    // Preserve the current aggregation level when new data is uploaded
+    // This allows users to keep their selected level when uploading new files
+    const currentFilters = get().filters
+    const preservedAggregationLevel = currentFilters?.aggregationLevel !== null 
+      ? currentFilters.aggregationLevel 
+      : defaultFilters.aggregationLevel
+    
     set({ 
       data, 
+      filteredData: [], // Clear filtered data when new data is set
       error: null,
-      filters: defaultFilters,
+      filters: {
+        ...defaultFilters,
+        aggregationLevel: preservedAggregationLevel // Preserve aggregation level
+      },
       opportunityFilters: defaultOpportunityFilters,
       defaultFiltersLoaded: true,
-      opportunityFiltersLoaded: true
+      opportunityFiltersLoaded: true,
+      geographyFiltersBySegmentType: {} // Clear geography filters for new market
+    })
+  },
+  
+  clearData: () => {
+    console.log('🧹 Store: Clearing all data for new market')
+    set({
+      data: null,
+      filteredData: [],
+      filters: getDefaultFilters(null),
+      opportunityFilters: getDefaultOpportunityFilters(null),
+      error: null,
+      defaultFiltersLoaded: false,
+      opportunityFiltersLoaded: false,
+      geographyFiltersBySegmentType: {},
+      selectedChartGroup: DEFAULT_CHART_GROUP
     })
   },
   
@@ -288,6 +358,36 @@ export const useDashboardStore = create<DashboardStore>((set, get) => ({
     return get().geographyFiltersBySegmentType[segmentType]
   },
   
+  setDashboardBuilderContext: (files) => set({ 
+    fromDashboardBuilder: true, 
+    dashboardBuilderFiles: files 
+  }),
+  
+  clearDashboardBuilderContext: () => set({ 
+    fromDashboardBuilder: false, 
+    dashboardBuilderFiles: null 
+  }),
+  
+  setIntelligenceType: (type) => set({ intelligenceType: type }),
+  
+  setCustomerIntelligenceData: (data) => set({ customerIntelligenceData: data }),
+  
+  setDistributorIntelligenceData: (data) => set({ distributorIntelligenceData: data }),
+  
+  setParentHeaders: (headers) => set({ parentHeaders: headers }),
+  
+  setRawIntelligenceData: (data) => set({ rawIntelligenceData: data }),
+  
+  setProposition2Data: (data) => set({ proposition2Data: data }),
+  
+  setProposition3Data: (data) => set({ proposition3Data: data }),
+  
+  setCompetitiveIntelligenceData: (data) => set({ competitiveIntelligenceData: data }),
+  
+  setDashboardName: (name) => set({ dashboardName: name }),
+  
+  setCurrency: (currency) => set({ currency }),
+  
   setLoading: (loading) => set({ isLoading: loading }),
   
   setError: (error) => set({ error, isLoading: false }),
@@ -307,16 +407,20 @@ export const useDashboardStore = create<DashboardStore>((set, get) => ({
   },
   
   setSelectedChartGroup: (groupId) => {
+    console.log('🔧 Store: setSelectedChartGroup called with:', groupId)
     set({ selectedChartGroup: groupId })
     // Load default opportunity filters when switching to opportunity matrix
-    if (groupId === 'coherent-opportunity' && !get().opportunityFiltersLoaded) {
+    if (groupId === 'coherent-opportunity') {
       const currentData = get().data
       if (currentData) {
         const defaultOpportunityFilters = getDefaultOpportunityFilters(currentData)
+        console.log('🔧 Store: Setting opportunity filters:', defaultOpportunityFilters)
         set({ 
           opportunityFilters: defaultOpportunityFilters,
           opportunityFiltersLoaded: true
         })
+      } else {
+        console.warn('🔧 Store: No data available when switching to opportunity matrix')
       }
     }
   },

@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, useState, useCallback, useEffect } from 'react'
+import { useDashboardStore } from '@/lib/store'
 import {
   loadDistributorsIntelligenceData,
   getDistributorsForModule,
@@ -15,6 +16,7 @@ import {
   type PremiumDistributor,
   type TableColumn
 } from '@/lib/distributors-intelligence-data'
+import { convertDistributorDataToIntelligenceFormat } from '@/lib/intelligence-data-converter'
 import { CHART_COLORS } from '@/lib/chart-theme'
 
 interface DistributorsIntelligenceProps {
@@ -354,37 +356,90 @@ function DistributorDetailModal({ isOpen, onClose, distributor, module }: Distri
 }
 
 export function DistributorsIntelligence({ title, height = 600 }: DistributorsIntelligenceProps) {
+  const { distributorIntelligenceData: manualDistributorData } = useDashboardStore()
   const [distributorsData, setDistributorsData] = useState<DistributorsIntelligenceData | null>(null)
   const [selectedModule, setSelectedModule] = useState<string>('Module 1 - Standard')
   const [selectedDistributor, setSelectedDistributor] = useState<Distributor | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  // Load data on mount
+  // Load data on mount - check manual input first, then API
   useEffect(() => {
+    const abortController = new AbortController()
+    let isMounted = true
+    
     async function loadData() {
       try {
+        if (!isMounted || abortController.signal.aborted) return
+        
         setIsLoading(true)
-        const data = await loadDistributorsIntelligenceData()
-        if (data) {
-          setDistributorsData(data)
-          // Set default module to first available
-          const modules = getAvailableModules(data)
-          if (modules.length > 0) {
-            setSelectedModule(modules[0])
+        setError(null) // Clear any previous errors
+        
+        // First, check if we have manual input data
+        console.log('🔍 DistributorsIntelligence: Checking for manual data', {
+          hasData: !!manualDistributorData,
+          dataLength: manualDistributorData?.length,
+          dataSample: manualDistributorData?.[0]
+        })
+        
+        if (manualDistributorData && manualDistributorData.length > 0) {
+          console.log('✅ Found manual distributor data, converting...')
+          const convertedData = convertDistributorDataToIntelligenceFormat(manualDistributorData)
+          console.log('📊 Converted data:', {
+            modules: convertedData?.metadata?.modules,
+            moduleDataCount: convertedData?.data?.['Module 1 - Standard']?.length
+          })
+          
+          if (isMounted && !abortController.signal.aborted) {
+            setDistributorsData(convertedData as DistributorsIntelligenceData)
+            // Set default module to first available
+            const modules = getAvailableModules(convertedData as DistributorsIntelligenceData)
+            if (modules.length > 0) {
+              setSelectedModule(modules[0])
+            }
+            setIsLoading(false)
+            console.log('✅ Manual data loaded successfully')
           }
-        } else {
-          setError('Failed to load distributors data')
+          return
+        }
+        
+        console.log('⚠️ No manual data found, loading from API...')
+        
+        // Otherwise, load from API
+        const data = await loadDistributorsIntelligenceData()
+        
+        // Only update state if component is still mounted and not aborted
+        if (isMounted && !abortController.signal.aborted) {
+          if (data) {
+            setDistributorsData(data)
+            // Set default module to first available
+            const modules = getAvailableModules(data)
+            if (modules.length > 0) {
+              setSelectedModule(modules[0])
+            }
+          } else {
+            // No error - just no data available (this is expected if file not uploaded)
+            setDistributorsData(null)
+          }
+          setIsLoading(false)
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'An error occurred')
-      } finally {
-        setIsLoading(false)
+        // Only set error for actual errors, not missing data
+        if (isMounted && !abortController.signal.aborted) {
+          setError(err instanceof Error ? err.message : 'An error occurred while loading distributors data')
+          setIsLoading(false)
+        }
       }
     }
     
     loadData()
-  }, [])
+    
+    // Cleanup function to prevent state updates after unmount
+    return () => {
+      isMounted = false
+      abortController.abort()
+    }
+  }, [manualDistributorData]) // Reload when manual data changes
 
   // Get available modules
   const availableModules = useMemo(() => {
@@ -435,10 +490,19 @@ export function DistributorsIntelligence({ title, height = 600 }: DistributorsIn
 
   if (error || !distributorsData) {
     return (
-      <div className="flex items-center justify-center h-96 bg-gray-50 rounded-lg">
-        <div className="text-center">
-          <p className="text-red-600 font-semibold">Error Loading Data</p>
-          <p className="text-sm text-black mt-2">{error || 'Distributors data not available'}</p>
+      <div className="flex items-center justify-center h-96 bg-gray-50 rounded-lg border border-gray-200">
+        <div className="text-center max-w-md px-4">
+          <div className="mb-4">
+            <svg className="w-16 h-16 mx-auto text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+            </svg>
+          </div>
+          <p className="text-gray-600 font-semibold mb-2">Distributors Data Not Available</p>
+          <p className="text-sm text-gray-500">
+            {error 
+              ? 'Unable to load distributors data. Please upload a distributors intelligence file to view this section.'
+              : 'Distributors intelligence data is not currently available. Upload a distributors CSV file to enable this feature.'}
+          </p>
         </div>
       </div>
     )

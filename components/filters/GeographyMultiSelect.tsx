@@ -9,9 +9,6 @@ export function GeographyMultiSelect() {
   const [isOpen, setIsOpen] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const dropdownRef = useRef<HTMLDivElement>(null)
-  
-  // Hide geography selector for "By Region" and "By State" segment types
-  const shouldHide = filters.segmentType === 'By Region' || filters.segmentType === 'By State'
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -70,17 +67,11 @@ export function GeographyMultiSelect() {
   }
 
   if (!data) return null
-  
-  // Hide component for "By Region" and "By State" segment types
-  if (shouldHide) return null
 
   const selectedCount = filters.geographies.length
 
   return (
     <div className="relative" ref={dropdownRef}>
-      <label className="block text-sm font-medium text-black mb-2">
-        Geography Selection
-      </label>
       
       {/* Dropdown Button */}
       <button

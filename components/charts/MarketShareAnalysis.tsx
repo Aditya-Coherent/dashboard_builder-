@@ -46,18 +46,37 @@ export function MarketShareAnalysis({ year: propYear = 2024 }: MarketShareAnalys
   }, [allCompaniesData, filters.geographies, selectedYear])
 
   useEffect(() => {
+    const abortController = new AbortController()
+    let isMounted = true
+    
     async function loadData() {
+      if (!isMounted || abortController.signal.aborted) return
+      
       const chartData = await generateMarketShareData(10) // Top 10 for chart
-      setMarketShareData(chartData)
+      
+      if (isMounted && !abortController.signal.aborted) {
+        setMarketShareData(chartData)
+      }
       
       // Load all companies for table view
-      const jsonData = await loadCompetitiveIntelligenceData()
-      if (jsonData && jsonData.market_share_data) {
-        const sorted = [...jsonData.market_share_data].sort((a, b) => b.marketShare - a.marketShare)
-        setAllCompaniesData(sorted)
+      if (isMounted && !abortController.signal.aborted) {
+        const jsonData = await loadCompetitiveIntelligenceData()
+        if (jsonData && jsonData.market_share_data) {
+          const sorted = [...jsonData.market_share_data].sort((a, b) => b.marketShare - a.marketShare)
+          if (isMounted && !abortController.signal.aborted) {
+            setAllCompaniesData(sorted)
+          }
+        }
       }
     }
+    
     loadData()
+    
+    // Cleanup function to prevent state updates after unmount
+    return () => {
+      isMounted = false
+      abortController.abort()
+    }
   }, [])
 
   // No labels on chart - percentages only in tooltip

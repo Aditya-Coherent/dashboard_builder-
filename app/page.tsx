@@ -19,14 +19,18 @@ import { FilterPresets } from '@/components/filters/FilterPresets'
 import { ChartGroupSelector } from '@/components/filters/ChartGroupSelector'
 import { CustomScrollbar } from '@/components/ui/CustomScrollbar'
 import { GlobalKPICards } from '@/components/GlobalKPICards'
+import { DashboardBuilderDownload } from '@/components/DashboardBuilderDownload'
 import { getChartsForGroup } from '@/lib/chart-groups'
-import { Lightbulb, X, Layers, LayoutGrid } from 'lucide-react'
+import { Lightbulb, X, Layers, LayoutGrid, Settings } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 import { Footer } from '@/components/Footer'
 import Image from 'next/image'
 
 export default function DashboardPage() {
-  const { setData, setLoading, setError, data, isLoading, error, filters, selectedChartGroup } = useDashboardStore()
+  const router = useRouter()
+  const { setData, setLoading, setError, data, isLoading, error, filters, selectedChartGroup, dashboardName } = useDashboardStore()
   const [mounted, setMounted] = useState(false)
+  const [hasCheckedStore, setHasCheckedStore] = useState(false)
   const [activeTab, setActiveTab] = useState<'bar' | 'line' | 'heatmap' | 'table' | 'waterfall' | 'bubble' | 'competitive-intelligence' | 'customer-intelligence'>('bar')
   const [showInsights, setShowInsights] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
@@ -71,7 +75,29 @@ export default function DashboardPage() {
   useEffect(() => {
     setMounted(true)
     
-    // Load data from API
+    // Check if data already exists in store (from dashboard builder)
+    const storeState = useDashboardStore.getState()
+    const existingData = storeState.data
+    
+    if (existingData && !hasCheckedStore) {
+      // Data already exists from dashboard builder, don't reload
+      console.log('✅ Using existing data from store (from Dashboard Builder)')
+      setHasCheckedStore(true)
+      setLoading(false)
+      // Load default filters for existing data
+      const { loadDefaultFilters } = useDashboardStore.getState()
+      loadDefaultFilters()
+      return
+    }
+    
+    // Only load from API if we haven't checked the store yet and no data exists
+    if (hasCheckedStore) {
+      return
+    }
+    
+    setHasCheckedStore(true)
+    
+    // Load data from API only if no data exists in store
     async function loadData() {
       try {
         setLoading(true)
@@ -82,7 +108,7 @@ export default function DashboardPage() {
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({}))
           const errorMessage = errorData.error || errorData.details || `Failed to load data: ${response.statusText}`
-          const debugInfo = errorData.debug ? `\nDebug: ${JSON.stringify(errorData.debug, null, 2)}` : ''
+          const debugInfo = errorData.debug ? `\nDebug: ${JSON.stringify(errorData.debug, null, 2)}` : '' 
           throw new Error(`${errorMessage}${debugInfo}`)
         }
         
@@ -110,7 +136,7 @@ export default function DashboardPage() {
     }
     
     loadData()
-  }, [setData, setLoading, setError])
+  }, [setData, setLoading, setError, hasCheckedStore])
 
   if (!mounted) {
     return null
@@ -177,13 +203,22 @@ export default function DashboardPage() {
                 Coherent Dashboard
               </h1>
               <h2 className="text-sm text-black">
-                India Market Analysis
+                {dashboardName || 'India Market Analysis'}
               </h2>
             </div>
           </div>
           
-          {/* Empty space on the right to balance the logo */}
-          <div className="flex-shrink-0 w-[150px]"></div>
+          {/* Dashboard Builder Button on the right */}
+          <div className="flex-shrink-0 flex items-center">
+            <button
+              onClick={() => router.push('/dashboard-builder')}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors shadow-sm"
+              title="Open Dashboard Builder to upload Excel/CSV files"
+            >
+              <Settings className="h-4 w-4" />
+              <span className="text-sm font-medium">Dashboard Builder</span>
+            </button>
+          </div>
         </div>
 
         {/* Global KPI Cards */}
@@ -603,6 +638,9 @@ export default function DashboardPage() {
           )}
         </div>
       </div>
+      
+      {/* Dashboard Builder Download Button - Shows after previewing */}
+      <DashboardBuilderDownload />
       
       {/* Footer */}
       <Footer />
