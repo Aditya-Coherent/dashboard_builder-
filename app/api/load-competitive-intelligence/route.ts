@@ -91,11 +91,17 @@ export async function GET(request: NextRequest) {
     // Parse competitive intelligence data
     const companies = parseCompetitiveIntelligenceFromData(rows)
     
-    // Calculate market share data
-    const marketShareData = companies.map(company => ({
+    // Calculate market share data with colors
+    // Import chart colors for consistent coloring
+    const CHART_COLORS = [
+      '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6',
+      '#06b6d4', '#f97316', '#ec4899', '#84cc16', '#6366f1'
+    ]
+    
+    const marketShareData = companies.map((company, index) => ({
       company: company.name,
       marketShare: company.marketShare,
-      color: company.color || '#94a3b8'
+      color: CHART_COLORS[index % CHART_COLORS.length] || '#94a3b8'
     }))
     
     // Return structured data
