@@ -43,8 +43,7 @@ export async function POST(request: NextRequest) {
       const csvString = fileBuffer.toString('utf-8')
       workbook = XLSX.read(csvString, { 
         type: 'string',
-        raw: true, // Preserve raw values
-        blankrows: false
+        raw: true // Preserve raw values
       })
     } else {
       workbook = XLSX.read(fileBuffer, { 
@@ -69,8 +68,7 @@ export async function POST(request: NextRequest) {
     // Convert to JSON array (preserving structure)
     const jsonData = XLSX.utils.sheet_to_json(worksheet, { 
       header: 1, // Array of arrays
-      raw: true, // Keep raw values as-is
-      blankrows: false
+      raw: true // Keep raw values as-is
     }) as any[][]
     
     console.log(`Sheet ${firstSheetName} has ${jsonData.length} rows`)

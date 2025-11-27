@@ -57,8 +57,7 @@ export async function GET(request: NextRequest) {
     // Convert to JSON array
     const jsonData = XLSX.utils.sheet_to_json(worksheet, { 
       header: 1, 
-      raw: false,
-      blankrows: false
+      raw: false
     }) as any[][]
     
     if (jsonData.length < 2) {
